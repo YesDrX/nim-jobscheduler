@@ -191,8 +191,8 @@ proc checkForChanges*(db: DbConn, tasksDir: string) =
   
   var currentFiles = initTable[string, bool]()
   
-  for kind, path in walkDir(tasksDir):
-    if kind == pcFile and path.endsWith(".yaml"):
+  for path in walkDirRec(tasksDir):
+    if path.endsWith(".yaml") and fileExists(path):
        currentFiles[path] = true
        
        let mtime = getLastModificationTime(path)

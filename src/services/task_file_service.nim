@@ -192,6 +192,6 @@ proc getAllTaskFiles*(dir: string): seq[string] =
   result = @[]
   if not dirExists(dir): return
   
-  for kind, path in walkDir(dir):
-    if kind == pcFile and path.endsWith(".yaml"):
+  for path in walkDirRec(dir):
+    if path.endsWith(".yaml") and fileExists(path):
       result.add(path)
