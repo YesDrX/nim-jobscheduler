@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block title %}Tasks - Job Scheduler{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Tasks</h2>
+    <a href="/tasks/new" class="btn">+ New Task</a>
+</div>
+
+<div class="section">
+    <div class="search-container" style="margin-bottom: 1rem;">
+        <input type="text" id="task-search" placeholder="Search tasks by name..." style="width: 100%; max-width: 400px; padding: 0.5rem; border: 1px solid var(--input-border); border-radius: 4px; font-size: 1rem;">
+    </div>
+    <div class="table-container">
+        <table id="tasks-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Next Run</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="tasks-body">
+                <tr><td colspan="5" class="loading">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="pagination" class="pagination" style="margin-top: 1rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem;"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allTasks = [];
+let currentPage = 1;
+let paginationInfo = null;
+
+async function loadTasks(page = 1) {
+    currentPage = page;
+    try {
+        const response = await fetch(`/api/tasks?page=${page}&limit=50`);
+        const result = await response.json();
+        allTasks = result.data || result; // Support both new format and old format
+        paginationInfo = result.pagination || null;
+        filterTasks();
+        updatePagination();
+    } catch (error) {
+        console.error('Error loading tasks:', error);
+        document.getElementById('tasks-body').innerHTML = 
+            '<tr><td colspan="5" class="error">Error loading tasks</td></tr>';
+    }
+}
+
+function updatePagination() {
+    const paginationEl = document.getElementById('pagination');
+    if (!paginationInfo || paginationInfo.totalPages <= 1) {
+        paginationEl.style.display = 'none';
+        return;
+    }
+    
+    paginationEl.style.display = 'flex';
+    const page = paginationInfo.page;
+    const totalPages = paginationInfo.totalPages;
+    const total = paginationInfo.total;
+    
+    let html = `<span style="margin-right: 1rem;">Showing ${(page - 1) * paginationInfo.limit + 1}-${Math.min(page * paginationInfo.limit, total)} of ${total}</span>`;
+    
+    if (page > 1) {
+        html += `<button class="btn btn-sm" onclick="loadTasks(${page - 1})">Previous</button>`;
+    }
+    
+    // Show page numbers
+    let startPage = Math.max(1, page - 2);
+    let endPage = Math.min(totalPages, page + 2);
+    
+    if (startPage > 1) {
+        html += `<button class="btn btn-sm" onclick="loadTasks(1)">1</button>`;
+        if (startPage > 2) html += `<span>...</span>`;
+    }
+    
+    for (let p = startPage; p <= endPage; p++) {
+        if (p === page) {
+            html += `<button class="btn btn-sm" style="background: var(--primary); opacity: 0.8;" disabled>${p}</button>`;
+        } else {
+            html += `<button class="btn btn-sm" onclick="loadTasks(${p})">${p}</button>`;
+        }
+    }
+    
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) html += `<span>...</span>`;
+        html += `<button class="btn btn-sm" onclick="loadTasks(${totalPages})">${totalPages}</button>`;
+    }
+    
+    if (page < totalPages) {
+        html += `<button class="btn btn-sm" onclick="loadTasks(${page + 1})">Next</button>`;
+    }
+    
+    paginationEl.innerHTML = html;
+}
+
+function filterTasks() {
+    const searchTerm = document.getElementById('task-search').value.toLowerCase();
+    const filteredTasks = allTasks.filter(task => 
+        task.name.toLowerCase().includes(searchTerm)
+    );
+    
+    const tbody = document.getElementById('tasks-body');
+    if (filteredTasks.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="no-data">No tasks found</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = filteredTasks.map(task => `
+            <tr>
+                <td>
+                    <div style="display:flex; align-items:center; gap: 5px;">
+                        <a href="/tasks/${task.id}" class="link">${task.name}</a>
+                        ${task.warnings && task.warnings.length > 0 ? 
+                          `<span class="warning-icon" title="${task.warnings.join('\n')}">⚠️</span>` : ''}
+                    </div>
+                </td>
+                <td>${task.description || '-'}</td>
+                <td><span class="badge">${task.type}</span></td>
+                <td>
+                    <label class="switch">
+                        <input type="checkbox" ${task.enabled ? 'checked' : ''} onchange="toggleTask(${task.id}, this)">
+                        <span class="slider"></span>
+                    </label>
+                </td>
+                <td>${formatNextRun(task.nextTrigger)}</td>
+                <td class="actions-cell">
+                    <a href="/tasks/${task.id}" class="btn btn-sm">View</a>
+                    <a href="/tasks/${task.id}/edit" class="btn btn-sm">Edit</a>
+                    <button onclick="triggerTask(${task.id})" class="btn btn-sm">Trigger</button>
+                    <button onclick="deleteTask(${task.id})" class="btn btn-sm btn-danger">Delete</button>
+                </td>
+            </tr>
+        `).join('');
+}
+
+document.getElementById('task-search').addEventListener('input', filterTasks);
+
+async function triggerTask(taskId) {
+    if (!confirm('Trigger all jobs in this task sequentially?')) return;
+    try {
+        const response = await fetch(`/api/tasks/${taskId}/trigger`, {method: 'POST'});
+        if (response.ok) {
+            alert('Task triggered successfully');
+        } else {
+            const data = await response.json();
+            alert('Failed to trigger task: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Failed to trigger task: ' + error);
+    }
+}
+
+async function toggleTask(taskId, checkbox) {
+    const enabled = checkbox.checked;
+    try {
+        await apiCall(`/api/tasks/${taskId}/toggle`, { method: 'POST', body: JSON.stringify({ enabled }) });
+        console.log(`Toggling task ${taskId} to ${enabled}`);
+    } catch (error) {
+        console.error('Error toggling task:', error);
+        checkbox.checked = !enabled; // Revert UI on error
+        alert('Failed to update task status');
+    }
+}
+
+async function deleteTask(taskId) {
+    if(!confirm('Are you sure you want to delete this task?')) return;
+    
+    try {
+        const res = await apiCall(`/api/tasks/${taskId}`, { method: 'DELETE' });
+        if(res && res.ok) {
+            loadTasks(currentPage);
+        } else {
+            alert('Failed to delete task');
+        }
+    } catch (error) {
+        console.error('Error deleting task:', error);
+    }
+}
+
+loadTasks();
+
+function formatNextRun(dtStr) {
+    if (!dtStr) return '-';
+    try {
+       const d = new Date(dtStr);
+       return d.toLocaleString();
+    } catch(e) { return dtStr; }
+}
+</script>
+<style>
+.actions-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    vertical-align: middle;
+    min-height: 2.5rem;
+}
+
+.actions-cell .btn,
+.actions-cell button {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    height: fit-content;
+    min-height: 2rem;
+    line-height: 1.5;
+}
+
+.warning-icon {
+    font-size: 1.1rem;
+    cursor: help;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 0.8; }
+    50% { opacity: 1; transform: scale(1.1); }
+    100% { opacity: 0.8; }
+}
+</style>
+{% endblock %}

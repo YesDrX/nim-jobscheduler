@@ -1,0 +1,12 @@
+jobscheduler.db
+logs
+logs/*
+config.yaml
+tmp_cache
+tmp_cache/*
+implementation_plan.md
+.vscode
+.vscode/*
+jobscheduler
+tasks
+tasks/*

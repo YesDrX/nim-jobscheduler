@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Job History - {{ jobName }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Execution History: {{ jobName }}</h2>
+    <a href="javascript:history.back()" class="btn btn-secondary">← Back</a>
+</div>
+
+<div class="section">
+    <div class="table-container">
+        <table id="history-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Started</th>
+                    <th>Ended</th>
+                    <th>Duration</th>
+                    <th>Status</th>
+                    <th>PID</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="history-body">
+                <tr><td colspan="7" class="loading">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const jobId = {{ jobId }};
+
+function calculateDuration(start, end) {
+    if (!start || !end) return '-';
+    const diff = new Date(end) - new Date(start);
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    
+    if (hours > 0) return `${hours}h ${minutes % 60}m`;
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+    return `${seconds}s`;
+}
+
+function formatTime(timeStr) {
+    if (!timeStr) return '-';
+    return new Date(timeStr).toLocaleString();
+}
+
+function formatStatus(status) {
+    const classes = {
+        'Success': 'status-badge success',
+        'Failed': 'status-badge failed',
+        'Cancelled': 'status-badge cancelled',
+        'Running': 'status-badge running',
+        'Scheduled': 'status-badge scheduled'
+    };
+    return `<span class="${classes[status] || 'status-badge'}">${status}</span>`;
+}
+
+async function loadHistory() {
+    try {
+        const response = await fetch(`/api/jobs/${jobId}/history`);
+        const executions = await response.json();
+        
+        const tbody = document.getElementById('history-body');
+        if (executions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="no-data">No execution history</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = executions.map(exec => `
+            <tr>
+                <td>${exec.id}</td>
+                <td>${formatTime(exec.startTime)}</td>
+                <td>${formatTime(exec.endTime)}</td>
+                <td>${calculateDuration(exec.startTime, exec.endTime)}</td>
+                <td>${formatStatus(exec.status)}</td>
+                <td>${exec.pid}</td>
+                <td>
+                    <a href="/executions/${exec.id}/log" class="btn btn-sm">View Log</a>
+                </td>
+            </tr>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error loading history:', error);
+        document.getElementById('history-body').innerHTML = 
+            '<tr><td colspan="7" class="error">Error loading history</td></tr>';
+    }
+}
+
+loadHistory();
+setInterval(loadHistory, 10000); // Refresh every 10 seconds
+</script>
+{% endblock %}
