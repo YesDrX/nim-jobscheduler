@@ -33,6 +33,7 @@ type
     enabled* : bool = true
     createdAt* : DateTime
     updatedAt* : DateTime
+    groupName* : string
 
 proc getTaskById*(db: DbConn, id: int): Option[tuple[dbId: int, data: Task]] =
   let res = queryRowsTask(db, "_dbID = " & $id)

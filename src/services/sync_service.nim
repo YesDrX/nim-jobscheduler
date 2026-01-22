@@ -9,13 +9,21 @@ import ./task_file_service
 var mtimeCache {.threadvar.}: Table[string, Time]
 
 # Helper to sync a single file (used by periodic check)
-proc syncSingleFile(db: DbConn, path: string) =
+proc syncSingleFile(db: DbConn, path: string, tasksDir: string) =
   let taskFileOpt = loadTaskFromYaml(path)
   if taskFileOpt.isNone: return
 
   let taskFile = taskFileOpt.get
-  let t = taskFile.task
+  var t = taskFile.task
   let jobs = taskFile.jobs
+
+  # Calculate Group Name based on folder structure
+  let relPath = relativePath(path, tasksDir)
+  let parentDir = relPath.parentDir
+  if parentDir != "." and parentDir != "":
+      t.groupName = parentDir
+  else:
+      t.groupName = ""
 
   # Calculate hash
   let content = readFile(path)
@@ -27,7 +35,7 @@ proc syncSingleFile(db: DbConn, path: string) =
   if existingRows.len > 0:
     let (dbId, existingTask) = existingRows[0]
     
-    if existingTask.configHash != newHash:
+    if existingTask.configHash != newHash or existingTask.groupName != t.groupName:
       info "Updating changed task file: " & t.name
       var toUpdate = t
       toUpdate.configHash = newHash
@@ -118,8 +126,16 @@ proc syncTasks*(db: DbConn, tasksDir: string) =
       continue
       
     let taskFile = taskFileOpt.get
-    let t = taskFile.task
+    var t = taskFile.task
     let jobs = taskFile.jobs
+    
+    # Calculate Group Name based on folder structure
+    let relPath = relativePath(file, tasksDir)
+    let parentDir = relPath.parentDir
+    if parentDir != "." and parentDir != "":
+        t.groupName = parentDir
+    else:
+        t.groupName = ""
     
     let content = readFile(file)
     let newHash = calculateConfigHash(content)
@@ -129,7 +145,7 @@ proc syncTasks*(db: DbConn, tasksDir: string) =
     if dbTasks.hasKey(t.name):
       let (dbId, existingTask) = dbTasks[t.name]
       
-      if existingTask.configHash != newHash:
+      if existingTask.configHash != newHash or existingTask.groupName != t.groupName:
         info "Updating task: " & t.name
         var toUpdate = t
         toUpdate.configHash = newHash
@@ -206,7 +222,7 @@ proc checkForChanges*(db: DbConn, tasksDir: string) =
        if changed:
           # Sync this file
           try:
-             syncSingleFile(db, path)
+             syncSingleFile(db, path, tasksDir)
              mtimeCache[path] = mtime
           except:
              error "Failed to sync changed file: " & path

@@ -33,9 +33,14 @@ var scheduler {.threadvar.}: SchedulerEngine
 
 const TemplateDir = currentSourcePath().parentDir() / "webui/templates/"
 
-proc deleteTaskFile(taskName: string, tasksDir: string) =
-  let filename = taskName.replace(" ", "_").replace("/", "-") & ".yaml"
-  let path = tasksDir / filename
+proc deleteTaskFile(task: Task, tasksDir: string) =
+  var path = task.sourceFile
+  if path == "":
+      var targetDir = tasksDir
+      if task.groupName.len > 0: targetDir = targetDir / task.groupName
+      let filename = task.name.replace(" ", "_").replace("/", "-") & ".yaml"
+      path = targetDir / filename
+      
   if fileExists(path):
     try: removeFile(path)
     except: error "Failed to delete task file: " & path
@@ -50,8 +55,11 @@ proc syncTaskToFile(db: DbConn, taskId: int, tasksDir: string) =
       saveTaskToYaml(t, jobs, tasksDir)
       
       # Update hash
+      var targetDir = tasksDir
+      if t.groupName.len > 0: targetDir = targetDir / t.groupName
       let filename = t.name.replace(" ", "_").replace("/", "-") & ".yaml"
-      let path = tasksDir / filename
+      let path = targetDir / filename
+      
       if fileExists(path):
           let content = readFile(path)
           let hash = calculateConfigHash(content)
@@ -366,7 +374,7 @@ proc handleRequest(req: Request) {.async, gcsafe.} =
         
         list.add(%*{"id": row.dbId, "name": t.name, "description": t.description,
                    "type": t.taskType, "enabled": t.enabled, "warnings": warningJArray,
-                   "nextTrigger": nextRunStr})
+                   "nextTrigger": nextRunStr, "groupName": t.groupName})
 
       var response = %*{
         "data": list,
@@ -388,7 +396,7 @@ proc handleRequest(req: Request) {.async, gcsafe.} =
       # Get task to delete file
       let taskOpt = getTaskById(db, taskId)
       if taskOpt.isSome:
-         deleteTaskFile(taskOpt.get.data.name, tasksDir)
+         deleteTaskFile(taskOpt.get.data, tasksDir)
       
       # Cascade delete: executions -> jobs -> task
       let jobs = queryRowsJob(db, "taskId = " & $taskId)
@@ -481,6 +489,7 @@ proc handleRequest(req: Request) {.async, gcsafe.} =
 
         headers["Content-Type"] = "application/json"
         await req.respond(Http200, $(%*{"id": dbId, "name": t.name, "description": t.description,
+                                        "groupName": t.groupName,
                                         "type": t.taskType,
                                         "sshHost": t.sshHost,
                                         "sshUser": t.sshUser,
@@ -560,10 +569,10 @@ proc handleRequest(req: Request) {.async, gcsafe.} =
         )
 
         let existingOpt = getTaskById(db, taskId)
-        var oldName = ""
+        var oldTask: Option[Task] = none(Task)
         if existingOpt.isSome:
           t.createdAt = existingOpt.get.data.createdAt
-          oldName = existingOpt.get.data.name
+          oldTask = some(existingOpt.get.data)
         else:
           t.createdAt = now().utc
 
@@ -571,8 +580,8 @@ proc handleRequest(req: Request) {.async, gcsafe.} =
 
         updateRowTask(db, taskId, t)
         
-        if oldName != "" and oldName != name:
-             deleteTaskFile(oldName, tasksDir)
+        if oldTask.isSome and oldTask.get.name != name:
+             deleteTaskFile(oldTask.get, tasksDir)
              
         syncTaskToFile(db, taskId, tasksDir)
         
@@ -1115,7 +1124,7 @@ proc mainAsync(configFilename: string) {.async.} =
 
   # Apply Config
   dbPath = cfg.database.path
-  tasksDir = cfg.tasksDir
+  tasksDir = cfg.tasksDir.absolutePath
 
   # Initialize Scheduler and Recovery (Background)
   let schedulerDb = openDatabase(dbPath)
@@ -1124,6 +1133,21 @@ proc mainAsync(configFilename: string) {.async.} =
   # Initialize DB Tables (Use Macro Generated Procs)
   createTableUser(schedulerDb)
   createTableTask(schedulerDb)
+  
+  # Migration: Check if TaskTable has groupName column
+  try:
+      let columns = schedulerDb.getAllRows(sql"PRAGMA table_info(TaskTable)")
+      var hasGroupName = false
+      for col in columns:
+        if col[1] == "groupName":
+           hasGroupName = true
+           break
+           
+      if not hasGroupName:
+         info "Migrating TaskTable: adding groupName column"
+         schedulerDb.exec(sql"ALTER TABLE TaskTable ADD COLUMN groupName TEXT DEFAULT ''")
+  except:
+      error "Migration failed: ", getCurrentExceptionMsg()
   createTableJob(schedulerDb)
   createTableExecution(schedulerDb)
   createTableToken(schedulerDb)

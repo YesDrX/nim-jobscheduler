@@ -137,12 +137,16 @@ proc loadTaskFromYaml*(path: string): Option[TaskFile] =
     return none(TaskFile)
 
 proc saveTaskToYaml*(task: Task, jobs: seq[Job], dir: string) =
-  if not dirExists(dir):
-    createDir(dir)
+  var targetDir = dir
+  if task.groupName.len > 0:
+      targetDir = targetDir / task.groupName
+      
+  if not dirExists(targetDir):
+    createDir(targetDir)
     
   # Use task name as filename, sanitized
   let filename = task.name.replace(" ", "_").replace("/", "-") & ".yaml"
-  let path = dir / filename
+  let path = targetDir / filename
   
   # Convert Task to DTO
   var dto = TaskYamlDTO(
