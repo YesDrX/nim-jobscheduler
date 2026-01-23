@@ -57,6 +57,12 @@
         </table>
     </div>
 </div>
+
+<div class="section">
+    <h3>Configuration</h3>
+    <pre><code class="language-yaml" id="task-config">Loading...</code></pre>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -116,6 +122,15 @@
             if (task.calendarPath && (task.scheduleType === 'stTime' || task.scheduleType === 'time' || task.scheduleType === 'stInterval' || task.scheduleType === 'interval')) {
                 details.innerHTML += `<dt>Calendar File</dt><dd><code>${task.calendarPath}</code></dd>`;
             }
+
+            // Show Source Content
+            const configEl = document.getElementById('task-config');
+            if (task.sourceContent) {
+                configEl.textContent = task.sourceContent;
+                Prism.highlightElement(configEl);
+            } else {
+                configEl.textContent = "# No source file or content available";
+            }
         } catch (error) {
             console.error('Error loading task:', error);
         }
@@ -145,6 +160,7 @@
                 <td><span class="status-badge ${job.enabled ? 'success' : 'failed'}">${job.enabled ? 'Enabled' : 'Disabled'}</span></td>
                 <td class="actions-cell">
                     <a href="/jobs/${job.id}/history" class="btn btn-sm">History</a>
+                    ${job.lastExecutionId ? `<a href="/executions/${job.lastExecutionId}/log" class="btn btn-sm">Log</a>` : ''}
                     <button onclick="triggerJob(${job.id})" class="btn btn-sm">Run Now</button>
                     <!-- Order: ${job.order || ''} -->
                 </td>
@@ -190,28 +206,30 @@
     }
 
     async function triggerTask() {
-        if (!confirm('Trigger all jobs in this task sequentially?')) return;
-        try {
-            const response = await fetch(`/api/tasks/${taskId}/trigger`, { method: 'POST' });
-            if (response.ok) {
-                alert('Task triggered successfully');
-            } else {
-                const data = await response.json();
-                alert('Failed to trigger task: ' + (data.error || 'Unknown error'));
+        showConfirmModal('Trigger Task', 'Trigger all jobs in this task sequentially?', async () => {
+            try {
+                const response = await fetch(`/api/tasks/${taskId}/trigger`, { method: 'POST' });
+                if (response.ok) {
+                    alert('Task triggered successfully');
+                } else {
+                    const data = await response.json();
+                    alert('Failed to trigger task: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Failed to trigger task: ' + error);
             }
-        } catch (error) {
-            alert('Failed to trigger task: ' + error);
-        }
+        });
     }
 
     async function triggerJob(jobId) {
-        if (!confirm('Trigger this job now?')) return;
-        try {
-            await fetch(`/api/jobs/${jobId}/trigger`, { method: 'POST' });
-            alert('Job triggered successfully');
-        } catch (error) {
-            alert('Failed to trigger job: ' + error);
-        }
+        showConfirmModal('Trigger Job', 'Trigger this job now?', async () => {
+            try {
+                await fetch(`/api/jobs/${jobId}/trigger`, { method: 'POST' });
+                alert('Job triggered successfully');
+            } catch (error) {
+                alert('Failed to trigger job: ' + error);
+            }
+        });
     }
 
     loadTaskDetails();

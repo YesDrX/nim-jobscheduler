@@ -29,6 +29,8 @@ type
     dateList* : seq[string]
     calendarPath* : string
     
+    parallel* : bool = false
+
     sourceFile* : string
     enabled* : bool = true
     createdAt* : DateTime

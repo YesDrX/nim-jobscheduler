@@ -6,6 +6,7 @@ import nimja/parser
 import db/connection
 import scheduler/engine
 import scheduler/triggers
+import scheduler/projection
 import executor/local
 import executor/remote
 import recovery/monitor
@@ -165,6 +166,10 @@ proc renderTokens(): string =
   const page = "tokens"
   compileTemplateFile("tokens.html", baseDir = TemplateDir)
 
+proc renderSchedule(): string =
+  const page = "schedule"
+  compileTemplateFile("schedule.html", baseDir = TemplateDir)
+
 # Embed static files at compile time
 const staticFiles = {
   "style.css": (staticRead("webui/static/style.css"), "text/css"),
@@ -220,8 +225,8 @@ proc handleRequest(req: Request) {.async, gcsafe.} =
       await req.respond(Http200, "", headers)
       return
 
-    # Static files
-    if matchPath(path, "^/static/(.+)$", captures):
+    # Static files - allow query string for cache busting
+    if matchPath(path, "^/static/([^?]+)", captures):
       let (content, contentType) = serveStatic(captures[0])
       if content.len > 0:
         headers["Content-Type"] = contentType
@@ -374,7 +379,7 @@ proc handleRequest(req: Request) {.async, gcsafe.} =
         
         list.add(%*{"id": row.dbId, "name": t.name, "description": t.description,
                    "type": t.taskType, "enabled": t.enabled, "warnings": warningJArray,
-                   "nextTrigger": nextRunStr, "groupName": t.groupName})
+                   "nextTrigger": nextRunStr, "groupName": t.groupName, "timezone": t.timezone})
 
       var response = %*{
         "data": list,
@@ -434,8 +439,19 @@ proc handleRequest(req: Request) {.async, gcsafe.} =
       var list = newJArray()
       for row in jobs:
         let j = row.data
+        # Get last execution ID
+        var lastExecId = 0
+        let lastExecTimeOpt = getLastExecutionTime(db, row.dbId)
+        # Wait, getLastExecutionTime returns time, not ID. 
+        # I need a helper to get ID or fetches latest execution row.
+        # Let's use raw SQL for efficiency here or add a helper?
+        # A simple query is fine.
+        let lastExecRow = db.getRow(sql"SELECT _dbID FROM ExecutionTable WHERE jobId = ? ORDER BY startTime DESC LIMIT 1", row.dbId)
+        if lastExecRow[0] != "":
+             lastExecId = parseInt(lastExecRow[0])
+
         list.add(%*{"id": row.dbId, "name": j.name, "command": j.command,
-            "enabled": j.enabled})
+            "enabled": j.enabled, "lastExecutionId": lastExecId})
       headers["Content-Type"] = "application/json"
       await req.respond(Http200, $list, headers)
 
@@ -486,6 +502,11 @@ proc handleRequest(req: Request) {.async, gcsafe.} =
         let serverStart = if scheduler != nil: some(scheduler.serverStartTime) else: none(DateTime)
         let nextRun = getNextTrigger(t, now().utc, lastRun, serverStart)
         let nextRunStr = if nextRun.isSome: $nextRun.get() else: ""
+        
+        var sourceContent = ""
+        if t.sourceFile != "" and fileExists(t.sourceFile):
+           try: sourceContent = readFile(t.sourceFile)
+           except: sourceContent = "# Error reading file"
 
         headers["Content-Type"] = "application/json"
         await req.respond(Http200, $(%*{"id": dbId, "name": t.name, "description": t.description,
@@ -505,6 +526,7 @@ proc handleRequest(req: Request) {.async, gcsafe.} =
                                         "enabled": t.enabled,
                                         "warnings": %getTaskWarnings(t),
                                         "commands": commands,
+                                        "sourceContent": sourceContent,
                                         "nextTrigger": nextRunStr}), headers)
       else:
         await req.respond(Http404, $(%*{"error": "Not found"}), headers)
@@ -786,62 +808,126 @@ proc handleRequest(req: Request) {.async, gcsafe.} =
 
     # GET /api/executions - list all or get single execution
     if path == "/api/executions" and req.reqMethod == HttpGet:
-      if req.url.query.contains("id="):
-        var execIdStr = ""
-        for pair in req.url.query.split("&"):
-          if pair.startsWith("id="):
-            execIdStr = pair.split("=")[1]
-            break
+      try:
+          if req.url.query.contains("id="):
+            var execIdStr = ""
+            for pair in req.url.query.split("&"):
+              if pair.startsWith("id="):
+                execIdStr = pair.split("=")[1]
+                break
 
-        if execIdStr != "":
-          let execOpt = getExecutionById(db, parseInt(execIdStr))
-          var list = newJArray()
-          if execOpt.isSome:
-            let (dbId, e) = execOpt.get
-            list.add(%*{"id": dbId, "startTime": $e.startTime, "endTime": $e.endTime,
-                      "status": e.status, "pid": e.pid, "logFile": e.logFile})
-          headers["Content-Type"] = "application/json"
-          await req.respond(Http200, $list, headers)
-          return
+            if execIdStr != "":
+              let execOpt = getExecutionById(db, parseInt(execIdStr))
+              var list = newJArray()
+              if execOpt.isSome:
+                let (dbId, e) = execOpt.get
+                
+                # Fetch Job and Task info
+                var taskName = "Unknown"
+                var jobName = "Unknown"
+                var taskId = 0
+                
+                let jobOpt = getJobById(db, e.jobId)
+                if jobOpt.isSome:
+                    let j = jobOpt.get.data
+                    jobName = j.name
+                    taskId = j.taskId
+                    
+                    let taskOpt = getTaskById(db, taskId)
+                    if taskOpt.isSome:
+                        taskName = taskOpt.get.data.name
 
-      # Parse pagination parameters
-      var page = 1
-      var limit = 50
-      if req.url.query != "":
-        for pair in req.url.query.split("&"):
-          if pair.startsWith("page="):
-            try:
-              page = parseInt(pair.split("=")[1])
-              if page < 1: page = 1
-            except: discard
-          elif pair.startsWith("limit="):
-            try:
-              limit = parseInt(pair.split("=")[1])
-              if limit < 1: limit = 50
-            except: discard
-
-      let offset = (page - 1) * limit
-      let execs = getRecentExecutionsPaged(db, limit, offset)
-      let total = getExecutionsCount(db)
-
+                list.add(%*{"id": dbId, "taskId": taskId, "taskName": taskName,
+                          "jobId": e.jobId, "jobName": jobName, "status": e.status,
+                          "startTime": $e.startTime, "endTime": $e.endTime,
+                          "pid": e.pid, "exitCode": e.exitCode, "logFile": e.logFile})
+              headers["Content-Type"] = "application/json"
+              await req.respond(Http200, $(%*{"data": list}), headers)
+            else:
+              # This branch seems unreachable if id= is present but empty?
+              # Fallback to list
+              discard
+          else:
+            let page = try: parseInt(req.url.query.split("page=")[1].split("&")[0]) except: 1
+            let limit = try: parseInt(req.url.query.split("limit=")[1].split("&")[0]) except: 50
+            let offset = (page - 1) * limit
+            
+            let executions = getRecentExecutionsPaged(db, limit, offset)
+            let totalStr = db.getValue(sql"SELECT COUNT(*) FROM ExecutionTable")
+            let total = try: parseInt(totalStr) except: 0
+            
+            var list = newJArray()
+            for e in executions:
+              list.add(%*{"id": e.id, "taskId": e.taskId, "taskName": e.taskName,
+                        "jobId": 0, "jobName": e.jobName, "status": e.status, 
+                        "startTime": $e.startTime, "endTime": $e.endTime,
+                        "pid": e.pid, "exitCode": 0})
+                          
+            var response = %*{
+              "data": list,
+              "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "totalPages": (total + limit - 1) div limit
+              }
+            }
+            headers["Content-Type"] = "application/json"
+            await req.respond(Http200, $response, headers)
+      except:
+          let e = getCurrentException()
+          error "Error in /api/executions: " & e.msg & "\n" & e.getStackTrace()
+          await req.respond(Http500, $(%*{"error": "Internal Error"}), headers)
+          
+    # Schedule API
+    elif path == "/api/schedule" and req.reqMethod == HttpGet:
+      var dateStr = ""
+      if req.url.query.contains("date="):
+         for pair in req.url.query.split("&"):
+             if pair.startsWith("date="):
+                 dateStr = pair.split("=")[1]
+      
+      var targetDate = now().utc
+      if dateStr != "":
+          try:
+              let parts = dateStr.split("-")
+              if parts.len == 3:
+                  targetDate = dateTime(parseInt(parts[0]), parseEnum[Month](parts[1]), parseInt(parts[2]), 0, 0, 0, 0, utc())
+          except:
+              discard
+      
+      let tasks = getAllTasksOrdered(db)
       var list = newJArray()
-      for s in execs:
-        list.add(%*{"id": s.id, "pid": s.pid, "startTime": $s.startTime, "endTime": $s.endTime,
-                   "status": s.status, "jobName": s.jobName,
-                   "taskName": s.taskName, "taskId": s.taskId})
-
-      var response = %*{
-        "data": list,
-        "pagination": {
-          "page": page,
-          "limit": limit,
-          "total": total,
-          "totalPages": (total + limit - 1) div limit
-        }
-      }
-
+      
+      for row in tasks:
+          let t = row.data
+          # Use projection module
+          let proj = projectTask(t, targetDate)
+          
+          if proj.triggers.len > 0 or proj.summary != "":
+              var triggerStrList = newJArray()
+              for d in proj.triggers:
+                  triggerStrList.add(%($d))
+                  
+              list.add(%*{
+                  "taskId": row.dbId,
+                  "taskName": t.name,
+                  "type": t.taskType,
+                  "scheduleType": t.scheduleType,
+                  "triggers": triggerStrList,
+                  "summary": proj.summary,
+                  "isHighFrequency": proj.isHighFrequency,
+                  "groupName": t.groupName 
+              })
+              
       headers["Content-Type"] = "application/json"
-      await req.respond(Http200, $response, headers)
+      await req.respond(Http200, $list, headers)
+      return
+
+    # Serve Schedule Page
+    elif path == "/schedule":
+       await req.respond(Http200, renderSchedule(), headers)
+       return
 
     # GET /api/logs/{id} - get execution log file
     elif matchPath(path, "^/api/logs/(\\d+)$", captures) and req.reqMethod == HttpGet:

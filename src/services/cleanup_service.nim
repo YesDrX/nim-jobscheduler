@@ -27,7 +27,7 @@ proc pruneExecutionHistory(manager: CleanupManager) =
     let cutoffStr = cutoff.format("yyyy-MM-dd HH:mm:ss")
     
     # 1. Prune Database with limit to avoid locking
-    manager.db.exec(sql"DELETE FROM execution WHERE endTime < ? AND endTime IS NOT NULL", cutoffStr)
+    manager.db.exec(sql"DELETE FROM ExecutionTable WHERE endTime < ? AND endTime IS NOT NULL", cutoffStr)
     
     # 2. Prune Logs
     rotateLogs(manager.logsDir, manager.config.logRetentionDays)

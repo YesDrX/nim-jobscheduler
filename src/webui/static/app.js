@@ -28,21 +28,21 @@ async function apiCall(url, options = {}) {
         options.headers = options.headers || {};
         options.headers['Authorization'] = `Bearer ${token}`;
     }
-    
+
     const response = await fetch(url, options);
-    
+
     if (response.status === 401) {
         window.location.href = '/login';
         return null;
     }
-    
+
     return response;
 }
 
 // SSE log streaming
 function streamLog(execId, targetElement) {
     const eventSource = new EventSource(`/api/executions/${execId}/log/stream`);
-    
+
     eventSource.onmessage = (event) => {
         if (targetElement) {
             targetElement.textContent += event.data;
@@ -51,10 +51,56 @@ function streamLog(execId, targetElement) {
             }
         }
     };
-    
+
     eventSource.onerror = () => {
         eventSource.close();
     };
-    
+
     return eventSource;
+}
+
+// Modal Logic
+const modalState = {
+    onConfirm: null,
+    element: null
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    modalState.element = document.getElementById('confirm-modal');
+
+    // Close on cancel or background click
+    document.getElementById('modal-cancel').onclick = hideConfirmModal;
+    modalState.element.onclick = (e) => {
+        if (e.target === modalState.element) hideConfirmModal();
+    };
+
+    // Confirm action
+    document.getElementById('modal-confirm').onclick = () => {
+        if (modalState.onConfirm) modalState.onConfirm();
+        hideConfirmModal();
+    };
+
+    // Close on Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modalState.element.style.display === 'flex') {
+            hideConfirmModal();
+        }
+    });
+});
+
+function showConfirmModal(title, message, onConfirm) {
+    if (!modalState.element) return;
+
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-message').textContent = message;
+    modalState.onConfirm = onConfirm;
+
+    modalState.element.style.display = 'flex';
+    document.getElementById('modal-confirm').focus();
+}
+
+function hideConfirmModal() {
+    if (!modalState.element) return;
+    modalState.element.style.display = 'none';
+    modalState.onConfirm = null;
 }

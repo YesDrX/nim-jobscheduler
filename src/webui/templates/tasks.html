@@ -180,7 +180,6 @@
                 </td>
                 <td>${formatNextRun(task.nextTrigger)}</td>
                 <td class="actions-cell" onclick="event.stopPropagation()">
-                    <a href="/tasks/${task.id}" class="btn btn-sm">View</a>
                     <a href="/tasks/${task.id}/edit" class="btn btn-sm">Edit</a>
                     <button onclick="triggerTask(${task.id})" class="btn btn-sm">Trigger</button>
                     <button onclick="deleteTask(${task.id})" class="btn btn-sm btn-danger">Delete</button>
@@ -195,18 +194,19 @@
     document.getElementById('task-search').addEventListener('input', renderView);
 
     async function triggerTask(taskId) {
-        if (!confirm('Trigger all jobs in this task sequentially?')) return;
-        try {
-            const response = await fetch(`/api/tasks/${taskId}/trigger`, { method: 'POST' });
-            if (response.ok) {
-                alert('Task triggered successfully');
-            } else {
-                const data = await response.json();
-                alert('Failed to trigger task: ' + (data.error || 'Unknown error'));
+        showConfirmModal('Trigger Task', 'Trigger all jobs in this task sequentially?', async () => {
+            try {
+                const response = await fetch(`/api/tasks/${taskId}/trigger`, { method: 'POST' });
+                if (response.ok) {
+                    alert('Task triggered successfully');
+                } else {
+                    const data = await response.json();
+                    alert('Failed to trigger task: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Failed to trigger task: ' + error);
             }
-        } catch (error) {
-            alert('Failed to trigger task: ' + error);
-        }
+        });
     }
 
     async function toggleTask(taskId, checkbox) {
@@ -222,18 +222,18 @@
     }
 
     async function deleteTask(taskId) {
-        if (!confirm('Are you sure you want to delete this task?')) return;
-
-        try {
-            const res = await apiCall(`/api/tasks/${taskId}`, { method: 'DELETE' });
-            if (res && res.ok) {
-                loadTasks(currentPage);
-            } else {
-                alert('Failed to delete task');
+        showConfirmModal('Delete Task', 'Are you sure you want to delete this task?', async () => {
+            try {
+                const res = await apiCall(`/api/tasks/${taskId}`, { method: 'DELETE' });
+                if (res && res.ok) {
+                    loadTasks(currentPage);
+                } else {
+                    alert('Failed to delete task');
+                }
+            } catch (error) {
+                console.error('Error deleting task:', error);
             }
-        } catch (error) {
-            console.error('Error deleting task:', error);
-        }
+        });
     }
 
     loadTasks();

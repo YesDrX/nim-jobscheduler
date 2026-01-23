@@ -21,7 +21,9 @@
                 </tr>
             </thead>
             <tbody id="users-body">
-                <tr><td colspan="5" class="loading">Loading...</td></tr>
+                <tr>
+                    <td colspan="5" class="loading">Loading...</td>
+                </tr>
             </tbody>
         </table>
     </div>
@@ -79,18 +81,18 @@
 
 {% block scripts %}
 <script>
-async function loadUsers() {
-    try {
-        const response = await fetch('/api/users');
-        const users = await response.json();
-        
-        const tbody = document.getElementById('users-body');
-        if (users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="no-data">No users found</td></tr>';
-            return;
-        }
-        
-        tbody.innerHTML = users.map(user => `
+    async function loadUsers() {
+        try {
+            const response = await fetch('/api/users');
+            const users = await response.json();
+
+            const tbody = document.getElementById('users-body');
+            if (users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="no-data">No users found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = users.map(user => `
             <tr>
                 <td>${user.username}</td>
                 <td>${user.email || '-'}</td>
@@ -102,156 +104,156 @@ async function loadUsers() {
                 </td>
             </tr>
         `).join('');
-        
-    } catch (error) {
-        console.error('Error loading users:', error);
+
+        } catch (error) {
+            console.error('Error loading users:', error);
+        }
     }
-}
 
-function showCreateUser() {
-    document.getElementById('create-modal').style.display = 'flex';
-}
-
-function hideModal() {
-    document.getElementById('create-modal').style.display = 'none';
-}
-
-function showChangePassword(userId) {
-    document.getElementById('change-user-id').value = userId;
-    document.getElementById('change-password-modal').style.display = 'flex';
-}
-
-function hidePasswordModal() {
-    document.getElementById('change-password-modal').style.display = 'none';
-}
-
-document.getElementById('create-user-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const password = document.getElementById('new-password').value;
-    const confirm = document.getElementById('new-password-confirm').value;
-    
-    if (password !== confirm) {
-        alert('Passwords do not match');
-        return;
+    function showCreateUser() {
+        document.getElementById('create-modal').style.display = 'flex';
     }
-    
-    try {
-        const response = await fetch('/api/users', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                username: document.getElementById('new-username').value,
-                email: document.getElementById('new-email').value,
-                password: password
-            })
+
+    function hideModal() {
+        document.getElementById('create-modal').style.display = 'none';
+    }
+
+    function showChangePassword(userId) {
+        document.getElementById('change-user-id').value = userId;
+        document.getElementById('change-password-modal').style.display = 'flex';
+    }
+
+    function hidePasswordModal() {
+        document.getElementById('change-password-modal').style.display = 'none';
+    }
+
+    document.getElementById('create-user-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const password = document.getElementById('new-password').value;
+        const confirm = document.getElementById('new-password-confirm').value;
+
+        if (password !== confirm) {
+            alert('Passwords do not match');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: document.getElementById('new-username').value,
+                    email: document.getElementById('new-email').value,
+                    password: password
+                })
+            });
+
+            if (response.ok) {
+                hideModal();
+                loadUsers();
+            } else {
+                alert('Failed to create user');
+            }
+        } catch (error) {
+            alert('Error: ' + error);
+        }
+    });
+
+    document.getElementById('change-password-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const password = document.getElementById('change-password').value;
+        const confirm = document.getElementById('change-password-confirm').value;
+
+        if (password !== confirm) {
+            alert('Passwords do not match');
+            return;
+        }
+
+        const userId = document.getElementById('change-user-id').value;
+        try {
+            const response = await fetch(`/api/users/${userId}/password`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: password })
+            });
+
+            if (response.ok) {
+                hidePasswordModal();
+                alert('Password updated successfully');
+            } else {
+                alert('Failed to update password');
+            }
+        } catch (error) {
+            alert('Error: ' + error);
+        }
+    });
+
+    async function deleteUser(userId) {
+        showConfirmModal('Delete User', 'Delete this user?', async () => {
+            try {
+                const response = await fetch(`/api/users/${userId}`, { method: 'DELETE' });
+                if (response.ok) {
+                    loadUsers();
+                } else {
+                    alert('Failed to delete user');
+                }
+            } catch (error) {
+                alert('Error: ' + error);
+            }
         });
-        
-        if (response.ok) {
-            hideModal();
-            loadUsers();
-        } else {
-            alert('Failed to create user');
-        }
-    } catch (error) {
-        alert('Error: ' + error);
     }
-});
 
-document.getElementById('change-password-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const password = document.getElementById('change-password').value;
-    const confirm = document.getElementById('change-password-confirm').value;
-    
-    if (password !== confirm) {
-        alert('Passwords do not match');
-        return;
-    }
-    
-    const userId = document.getElementById('change-user-id').value;
-    try {
-        const response = await fetch(`/api/users/${userId}/password`, {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({password: password})
-        });
-        
-        if (response.ok) {
-            hidePasswordModal();
-            alert('Password updated successfully');
-        } else {
-            alert('Failed to update password');
-        }
-    } catch (error) {
-        alert('Error: ' + error);
-    }
-});
-
-async function deleteUser(userId) {
-    if (!confirm('Delete this user?')) return;
-    
-    try {
-        const response = await fetch(`/api/users/${userId}`, {method: 'DELETE'});
-        if (response.ok) {
-            loadUsers();
-        } else {
-            alert('Failed to delete user');
-        }
-    } catch (error) {
-        alert('Error: ' + error);
-    }
-}
-
-loadUsers();
+    loadUsers();
 </script>
 
 <style>
-.modal {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0,0,0,0.5);
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
 
-.modal-content {
-    background: var(--bg-card);
-    padding: 2rem;
-    border-radius: 8px;
-    max-width: 500px;
-    width: 90%;
-}
+    .modal-content {
+        background: var(--bg-card);
+        padding: 2rem;
+        border-radius: 8px;
+        max-width: 500px;
+        width: 90%;
+    }
 
-.form-group {
-    margin-bottom: 1rem;
-}
+    .form-group {
+        margin-bottom: 1rem;
+    }
 
-.form-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    font-weight: 600;
-    color: var(--text);
-}
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: var(--text);
+    }
 
-.form-group input {
-    width: 100%;
-    padding: 0.5rem;
-    border: 1px solid var(--input-border);
-    border-radius: 4px;
-    background: var(--input-bg);
-    color: var(--text);
-}
+    .form-group input {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid var(--input-border);
+        border-radius: 4px;
+        background: var(--input-bg);
+        color: var(--text);
+    }
 
-.btn-danger {
-    background: var(--danger);
-}
+    .btn-danger {
+        background: var(--danger);
+    }
 
-.btn-danger:hover {
-    background: #dc2626;
-}
+    .btn-danger:hover {
+        background: #dc2626;
+    }
 </style>
 {% endblock %}

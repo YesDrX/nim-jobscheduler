@@ -21,7 +21,9 @@
                 </tr>
             </thead>
             <tbody id="tokens-body">
-                <tr><td colspan="5" class="loading">Loading...</td></tr>
+                <tr>
+                    <td colspan="5" class="loading">Loading...</td>
+                </tr>
             </tbody>
         </table>
     </div>
@@ -32,7 +34,8 @@
 <div class="section">
     <h3>API Documentation</h3>
     <div class="api-auth-info">
-        <p>Authenticate requests using the header: <code class="auth-header">Authorization: Bearer &lt;your_token&gt;</code></p>
+        <p>Authenticate requests using the header: <code
+                class="auth-header">Authorization: Bearer &lt;your_token&gt;</code></p>
     </div>
 
     <div class="api-docs">
@@ -114,7 +117,7 @@
                 <p>Manually trigger a task execution immediately.</p>
             </div>
         </div>
-        
+
         <!-- GET /api/executions -->
         <div class="api-endpoint">
             <div class="api-header get" onclick="toggleApi(this)">
@@ -124,10 +127,10 @@
             </div>
             <div class="api-details">
                 <p>Get execution history.</p>
-                 <h4>Query Parameters</h4>
+                <h4>Query Parameters</h4>
                 <ul>
-                     <li><code>page</code>, <code>limit</code></li>
-                     <li><code>id</code>: Get details for specific execution ID</li>
+                    <li><code>page</code>, <code>limit</code></li>
+                    <li><code>id</code>: Get details for specific execution ID</li>
                 </ul>
             </div>
         </div>
@@ -174,18 +177,18 @@
 
 {% block scripts %}
 <script>
-async function loadTokens() {
-    try {
-        const response = await fetch('/api/tokens');
-        const tokens = await response.json();
-        
-        const tbody = document.getElementById('tokens-body');
-        if (tokens.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="no-data">No tokens found</td></tr>';
-            return;
-        }
-        
-        tbody.innerHTML = tokens.map(token => `
+    async function loadTokens() {
+        try {
+            const response = await fetch('/api/tokens');
+            const tokens = await response.json();
+
+            const tbody = document.getElementById('tokens-body');
+            if (tokens.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="no-data">No tokens found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = tokens.map(token => `
             <tr>
                 <td>${token.name}</td>
                 <td><code>${token.tokenPrefix}...****</code></td>
@@ -196,232 +199,255 @@ async function loadTokens() {
                 </td>
             </tr>
         `).join('');
-        
-    } catch (error) {
-        console.error('Error loading tokens:', error);
-    }
-}
 
-function showCreateToken() {
-    document.getElementById('create-token-modal').style.display = 'flex';
-}
-
-function hideTokenModal() {
-    document.getElementById('create-token-modal').style.display = 'none';
-}
-
-function hideShowTokenModal() {
-    document.getElementById('show-token-modal').style.display = 'none';
-}
-
-function copyToken() {
-    const token = document.getElementById('new-token-value').textContent;
-    navigator.clipboard.writeText(token);
-    alert('Token copied to clipboard!');
-}
-
-document.getElementById('create-token-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    try {
-        const expiryDays = parseInt(document.getElementById('token-expiry').value);
-        let expiresAt = null;
-        
-        if (expiryDays > 0) {
-            const expiryDate = new Date();
-            expiryDate.setDate(expiryDate.getDate() + expiryDays);
-            // Format as ISO string in format: yyyy-MM-ddTHH:mm:ss
-            expiresAt = expiryDate.toISOString().split('.')[0]; // Remove milliseconds and timezone
-        } else {
-            // Never expires - send date far in future (100 years)
-            const farFuture = new Date();
-            farFuture.setFullYear(farFuture.getFullYear() + 100);
-            expiresAt = farFuture.toISOString().split('.')[0];
+        } catch (error) {
+            console.error('Error loading tokens:', error);
         }
-        
-        const response = await fetch('/api/tokens', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                name: document.getElementById('token-name').value,
-                expiresAt: expiresAt
-            })
+    }
+
+    function showCreateToken() {
+        document.getElementById('create-token-modal').style.display = 'flex';
+    }
+
+    function hideTokenModal() {
+        document.getElementById('create-token-modal').style.display = 'none';
+    }
+
+    function hideShowTokenModal() {
+        document.getElementById('show-token-modal').style.display = 'none';
+    }
+
+    function copyToken() {
+        const token = document.getElementById('new-token-value').textContent;
+        navigator.clipboard.writeText(token);
+        alert('Token copied to clipboard!');
+    }
+
+    document.getElementById('create-token-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        try {
+            const expiryDays = parseInt(document.getElementById('token-expiry').value);
+            let expiresAt = null;
+
+            if (expiryDays > 0) {
+                const expiryDate = new Date();
+                expiryDate.setDate(expiryDate.getDate() + expiryDays);
+                // Format as ISO string in format: yyyy-MM-ddTHH:mm:ss
+                expiresAt = expiryDate.toISOString().split('.')[0]; // Remove milliseconds and timezone
+            } else {
+                // Never expires - send date far in future (100 years)
+                const farFuture = new Date();
+                farFuture.setFullYear(farFuture.getFullYear() + 100);
+                expiresAt = farFuture.toISOString().split('.')[0];
+            }
+
+            const response = await fetch('/api/tokens', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: document.getElementById('token-name').value,
+                    expiresAt: expiresAt
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                document.getElementById('new-token-value').textContent = data.token;
+                hideTokenModal();
+                document.getElementById('show-token-modal').style.display = 'flex';
+                loadTokens();
+            } else {
+                alert('Failed to create token');
+            }
+        } catch (error) {
+            alert('Error: ' + error);
+        }
+    });
+
+    async function revokeToken(tokenId) {
+        showConfirmModal('Revoke Token', 'Revoke this token? This cannot be undone.', async () => {
+            try {
+                const response = await fetch(`/api/tokens/${tokenId}`, { method: 'DELETE' });
+                if (response.ok) {
+                    loadTokens();
+                } else {
+                    alert('Failed to revoke token');
+                }
+            } catch (error) {
+                alert('Error: ' + error);
+            }
         });
-        
-        if (response.ok) {
-            const data = await response.json();
-            document.getElementById('new-token-value').textContent = data.token;
-            hideTokenModal();
-            document.getElementById('show-token-modal').style.display = 'flex';
-            loadTokens();
+    }
+
+    function toggleApi(header) {
+        const details = header.nextElementSibling;
+        if (details.style.display === 'block') {
+            details.style.display = 'none';
         } else {
-            alert('Failed to create token');
+            details.style.display = 'block';
         }
-    } catch (error) {
-        alert('Error: ' + error);
     }
-});
 
-async function revokeToken(tokenId) {
-    if (!confirm('Revoke this token? This cannot be undone.')) return;
-    
-    try {
-        const response = await fetch(`/api/tokens/${tokenId}`, {method: 'DELETE'});
-        if (response.ok) {
-            loadTokens();
-        } else {
-            alert('Failed to revoke token');
-        }
-    } catch (error) {
-        alert('Error: ' + error);
-    }
-}
-
-function toggleApi(header) {
-    const details = header.nextElementSibling;
-    if (details.style.display === 'block') {
-        details.style.display = 'none';
-    } else {
-        details.style.display = 'block';
-    }
-}
-
-loadTokens();
+    loadTokens();
 </script>
 
 <style>
-.token-display {
-    background: var(--light);
-    padding: 1rem;
-    border-radius: 4px;
-    margin: 1rem 0;
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-}
+    .token-display {
+        background: var(--light);
+        padding: 1rem;
+        border-radius: 4px;
+        margin: 1rem 0;
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+    }
 
-.token-display code {
-    flex: 1;
-    word-break: break-all;
-    font-size: 0.875rem;
-}
+    .token-display code {
+        flex: 1;
+        word-break: break-all;
+        font-size: 0.875rem;
+    }
 
-select {
-    width: 100%;
-    padding: 0.5rem;
-    border: 1px solid var(--input-border);
-    border-radius: 4px;
-    background: var(--input-bg);
-    color: var(--text);
-}
+    select {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid var(--input-border);
+        border-radius: 4px;
+        background: var(--input-bg);
+        color: var(--text);
+    }
 
-/* API Docs Styles */
-.separator {
-    height: 1px;
-    background: var(--border);
-    margin: 2rem 0;
-}
+    /* API Docs Styles */
+    .separator {
+        height: 1px;
+        background: var(--border);
+        margin: 2rem 0;
+    }
 
-.api-auth-info {
-    background: var(--bg-card);
-    padding: 1rem;
-    border-radius: 4px;
-    margin-bottom: 2rem;
-    border: 1px solid var(--border);
-}
+    .api-auth-info {
+        background: var(--bg-card);
+        padding: 1rem;
+        border-radius: 4px;
+        margin-bottom: 2rem;
+        border: 1px solid var(--border);
+    }
 
-.auth-header {
-    background: #333;
-    color: #0f0;
-    padding: 0.2rem 0.5rem;
-    border-radius: 3px;
-    font-family: monospace;
-}
+    .auth-header {
+        background: #333;
+        color: #0f0;
+        padding: 0.2rem 0.5rem;
+        border-radius: 3px;
+        font-family: monospace;
+    }
 
-.api-endpoint {
-    margin-bottom: 1rem;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    overflow: hidden;
-}
+    .api-endpoint {
+        margin-bottom: 1rem;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        overflow: hidden;
+    }
 
-.api-header {
-    display: flex;
-    align-items: center;
-    padding: 0.75rem 1rem;
-    cursor: pointer;
-    background: var(--bg-card);
-    transition: background 0.2s;
-    user-select: none;
-}
+    .api-header {
+        display: flex;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        cursor: pointer;
+        background: var(--bg-card);
+        transition: background 0.2s;
+        user-select: none;
+    }
 
-.api-header:hover {
-    filter: brightness(0.95);
-}
+    .api-header:hover {
+        filter: brightness(0.95);
+    }
 
-.api-header .method {
-    font-weight: bold;
-    min-width: 60px;
-    padding: 0.25rem 0.6rem;
-    border-radius: 3px;
-    color: white;
-    text-align: center;
-    font-size: 0.85rem;
-    margin-right: 1rem;
-}
+    .api-header .method {
+        font-weight: bold;
+        min-width: 60px;
+        padding: 0.25rem 0.6rem;
+        border-radius: 3px;
+        color: white;
+        text-align: center;
+        font-size: 0.85rem;
+        margin-right: 1rem;
+    }
 
-.api-header.get .method { background: #61affe; }
-.api-header.post .method { background: #49cc90; }
-.api-header.put .method { background: #fca130; }
-.api-header.delete .method { background: #f93e3e; }
+    .api-header.get .method {
+        background: #61affe;
+    }
 
-/* Border colors matching methods */
-.api-header.get { border-left: 5px solid #61affe; }
-.api-header.post { border-left: 5px solid #49cc90; }
-.api-header.put { border-left: 5px solid #fca130; }
-.api-header.delete { border-left: 5px solid #f93e3e; }
+    .api-header.post .method {
+        background: #49cc90;
+    }
 
-.api-header .path {
-    font-family: monospace;
-    font-size: 1rem;
-    font-weight: 600;
-    margin-right: 1rem;
-    color: var(--text);
-}
+    .api-header.put .method {
+        background: #fca130;
+    }
 
-.api-header .summary {
-    color: var(--text-muted);
-    font-size: 0.9rem;
-    flex: 1;
-}
+    .api-header.delete .method {
+        background: #f93e3e;
+    }
 
-.api-details {
-    display: none;
-    padding: 1rem;
-    background: var(--bg-body); /* Slightly darker/different from card */
-    border-top: 1px solid var(--border);
-}
+    /* Border colors matching methods */
+    .api-header.get {
+        border-left: 5px solid #61affe;
+    }
 
-.api-details h4 {
-    margin-top: 1rem;
-    margin-bottom: 0.5rem;
-    font-size: 0.95rem;
-    color: var(--text);
-}
+    .api-header.post {
+        border-left: 5px solid #49cc90;
+    }
 
-.api-details pre {
-    background: #1e1e1e;
-    color: #d4d4d4;
-    padding: 1rem;
-    border-radius: 4px;
-    overflow-x: auto;
-    font-size: 0.85rem;
-}
+    .api-header.put {
+        border-left: 5px solid #fca130;
+    }
 
-.api-details ul {
-    margin: 0;
-    padding-left: 1.5rem;
-    color: var(--text-muted);
-}
+    .api-header.delete {
+        border-left: 5px solid #f93e3e;
+    }
+
+    .api-header .path {
+        font-family: monospace;
+        font-size: 1rem;
+        font-weight: 600;
+        margin-right: 1rem;
+        color: var(--text);
+    }
+
+    .api-header .summary {
+        color: var(--text-muted);
+        font-size: 0.9rem;
+        flex: 1;
+    }
+
+    .api-details {
+        display: none;
+        padding: 1rem;
+        background: var(--bg-body);
+        /* Slightly darker/different from card */
+        border-top: 1px solid var(--border);
+    }
+
+    .api-details h4 {
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+        font-size: 0.95rem;
+        color: var(--text);
+    }
+
+    .api-details pre {
+        background: #1e1e1e;
+        color: #d4d4d4;
+        padding: 1rem;
+        border-radius: 4px;
+        overflow-x: auto;
+        font-size: 0.85rem;
+    }
+
+    .api-details ul {
+        margin: 0;
+        padding-left: 1.5rem;
+        color: var(--text-muted);
+    }
 </style>
 {% endblock %}

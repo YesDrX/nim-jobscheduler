@@ -54,6 +54,7 @@ type
     enabled* {.defaultVal: none(bool).}: Option[bool]
     createdAt* {.defaultVal: none(DateTime).}: Option[DateTime]
     updatedAt* {.defaultVal: none(DateTime).}: Option[DateTime]
+    parallel* {.defaultVal: none(bool).}: Option[bool]
 
   JobYamlDTO = object
     name* {.defaultVal: none(string).}: Option[string]
@@ -108,7 +109,8 @@ proc loadTaskFromYaml*(path: string): Option[TaskFile] =
         enabled: dto.enabled.get(true),
         createdAt: dto.createdAt.get(now().utc),
         updatedAt: dto.updatedAt.get(now().utc),
-        sourceFile: path 
+        sourceFile: path,
+        parallel: dto.parallel.get(false)
     )
     let resolvedCalendarPath = resolveCalendarPath(t.calendarPath, path)
     if resolvedCalendarPath.len > 0:
@@ -168,7 +170,8 @@ proc saveTaskToYaml*(task: Task, jobs: seq[Job], dir: string) =
     calendarPath: some(task.calendarPath),
     enabled: some(task.enabled),
     createdAt: some(task.createdAt),
-    updatedAt: some(task.updatedAt)
+    updatedAt: some(task.updatedAt),
+    parallel: some(task.parallel)
   )
   
   # Convert Jobs to DTO

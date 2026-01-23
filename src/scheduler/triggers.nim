@@ -197,7 +197,7 @@ proc getTaskWarnings*(task: Task): seq[string] =
     if not exists:
       result.add("Calendar file not found: " & task.calendarPath)
 
-proc isDateAllowed(dateList: seq[string], date: DateTime): bool =
+proc isDateAllowed*(dateList: seq[string], date: DateTime): bool =
   if dateList.len == 0: return true # Wait, if list empty but path set? 
   # Actually, `isDateAllowed` is called inside loop.
   # If we rely on task having dateList, we should check task.calendarPath existence outside or pass it context.

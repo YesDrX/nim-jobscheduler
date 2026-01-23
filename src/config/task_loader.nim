@@ -33,6 +33,7 @@ type
     intervalMinutes: Option[int]
     timezone: Option[string]
     calendarPath: Option[string]
+    parallel: Option[bool]
 
   TaskYAML = object
     task: TaskConfigYAML
@@ -130,7 +131,9 @@ proc loadTasks*(tasksDir: string, db: DbConn) =
           t.intervalStart = taskYaml.task.intervalStart.get("")
           t.intervalEnd = taskYaml.task.intervalEnd.get("")
           t.intervalMinutes = taskYaml.task.intervalMinutes.get(0)
+
           t.calendarPath = resolvedCalendarPath
+          t.parallel = taskYaml.task.parallel.get(false)
           t.sourceFile = path
 
           if resolvedCalendarPath.len > 0:
@@ -161,7 +164,9 @@ proc loadTasks*(tasksDir: string, db: DbConn) =
           intervalStart: taskYaml.task.intervalStart.get(""),
           intervalEnd: taskYaml.task.intervalEnd.get(""),
           intervalMinutes: taskYaml.task.intervalMinutes.get(0),
+
           calendarPath: resolvedCalendarPath,
+          parallel: taskYaml.task.parallel.get(false),
           sourceFile: path
         )
 
