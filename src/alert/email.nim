@@ -33,7 +33,12 @@ Tail of Log File:
 {getLogContent(execution.logFile, 30)}
 
 """
-  let msg = createMessage(subject, body, config.toAddrs)
+  let msg = createMessage(
+    subject,
+    body,
+    sender = config.fromAddr,
+    mTo = config.toAddrs
+  )
   try:
     let client = newSmtp(useSsl = config.useSSL)
     client.connect(config.host, Port(config.port))
