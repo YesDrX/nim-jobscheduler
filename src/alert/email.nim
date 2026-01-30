@@ -4,9 +4,10 @@ import ../models/execution
 import ../config/types
 import ../executor/logger
 
-proc sendAlert*(jobId: int, job: Job, execId: int, execution: Execution, config: SmtpConfig) {.async.} =
+proc sendAlert*(jobId: int, job: Job, execId: int, execution: Execution,
+    config: SmtpConfig) {.async.} =
   if not config.enabled: return
-  
+
   if config.host == "":
     warn "[Alert] SMTP enabled but host missing"
     return
@@ -34,7 +35,7 @@ Tail of Log File:
 """
   let msg = createMessage(subject, body, config.toAddrs)
   try:
-    let client = newSmtp(useSsl = true)
+    let client = newSmtp(useSsl = config.useSSL)
     client.connect(config.host, Port(config.port))
     if config.fromAddr != "" and config.password != "":
       client.auth(config.fromAddr, config.password)

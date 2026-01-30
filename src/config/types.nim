@@ -13,6 +13,7 @@ type
     enabled*: bool
     host*: string
     port*: int
+    useSSL*: bool
     password*: string
     fromAddr*: string
     toAddrs*: seq[string]
