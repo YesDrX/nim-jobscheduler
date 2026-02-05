@@ -267,7 +267,10 @@ proc workerLoop() {.thread.} =
 
       await sleepAsync(500)
 
-  waitFor monitorTasks()
+  # Don't use waitFor on infinite loop - it blocks the thread creation!
+  asyncCheck monitorTasks()
+  while workerRunning:
+    poll(timeout = 100)
 
 proc startWorker*() =
   if workerRunning:
