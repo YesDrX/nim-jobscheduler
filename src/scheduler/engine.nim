@@ -7,6 +7,7 @@ import ../models/task
 import ../db/connection
 import ../executor/local
 import ../executor/remote
+import ../executor/remote_worker
 import ../executor/process
 import ../alert/email
 import ../services/cleanup_service
@@ -48,7 +49,6 @@ type
 proc `<`*(a, b: ScheduledItem): bool =
   a.triggerTime < b.triggerTime
 
-
 proc newSchedulerEngine*(db: DbConn, localExec: LocalExecutor, remoteExec: RemoteExecutor, cfg: Config, checkInterval = 30000): SchedulerEngine =
   new(result)
   result.db = db
@@ -74,7 +74,9 @@ proc newSchedulerEngine*(db: DbConn, localExec: LocalExecutor, remoteExec: Remot
   # Initialize In-Memory State
   result.dailySchedule = initHeapQueue[ScheduledItem]()
   result.runningTasks = initTable[int, RunningTask]()
-
+  
+  # Start autonomous worker thread for remote monitoring
+  startWorker()
 
 proc logMsg(engine: SchedulerEngine, msg: string) =
   info("[Scheduler] " & msg)
@@ -142,7 +144,6 @@ proc dispatchJob(engine: SchedulerEngine, jobId: int, job: Job): tuple[execId: i
     exec.status = esFailed
     asyncCheck sendAlert(jobId, job, execId, exec, engine.smtpConfig, engine.externalUrl)
     return (execId, 0, "")
-
 
 proc generateDailySchedule(engine: SchedulerEngine, referenceTime: DateTime) =
   ## Generate daily schedule using referenceTime as the basis
@@ -294,6 +295,10 @@ proc dispatchTask(engine: SchedulerEngine, taskId: int, task: Task) =
           jobIds: jobs.mapIt(it[0]),
           jobIndex: 0
        )
+       
+       # If remote task, register with worker for autonomous monitoring
+       if task.taskType == ttRemote:
+         addTaskToMonitor(taskId, execId, pid, logPath, task, firstJob.command)
 
 proc runLoop(engine: SchedulerEngine) {.async.} =
   engine.running = true
@@ -311,28 +316,20 @@ proc runLoop(engine: SchedulerEngine) {.async.} =
     
     # 1. Daily Plan Refresh (At midnight or if empty? Just check date change)
     if loopStart.yearday != lastPlanTime.yearday:
-       # Use loopStart as the reference time for schedule generation
-       # This ensures triggers calculated at exactly loopStart will be checked immediately
        engine.generateDailySchedule(loopStart)
        lastPlanTime = loopStart
        
     # 2. Trigger Tasks
-    # IMPORTANT: Use loopStart (not now()) to avoid skipping tasks if schedule generation was slow
-    # For example, if we regenerate at 19:00:00 and it takes 1 second,
-    # a task scheduled for 19:00:00 would be skipped if we used now() (19:00:01)
     while engine.dailySchedule.len > 0:
        # Peek
        let item = engine.dailySchedule[0]
        if item.triggerTime <= loopStart:
           discard engine.dailySchedule.pop()
-          
           # Fetch task to dispatch
           let taskOpt = getTaskById(engine.db, item.taskId)
           if taskOpt.isSome:
              engine.dispatchTask(item.taskId, taskOpt.get.data)
-       else:
-          break 
-          
+
     # 3. Monitor Running Tasks (Sequential)
     # Use toSeq to allow modification if we need to remove keys
     let currentTasks = toSeq(engine.runningTasks.pairs) 
@@ -352,20 +349,26 @@ proc runLoop(engine: SchedulerEngine) {.async.} =
        
        let exitPath = runInfo.logPath.changeFileExt("exit")
        
-       # Check Remote Status if Local Exit File is Missing
+       # For remote tasks, check worker status instead of blocking SSH calls
        if not fileExists(exitPath) and hasDetails and task.taskType == ttRemote:
-           # Check if it's still running on remote
-           let pid = getExecutionPid(engine.db, runInfo.currentExecId)
-           let isRunning = engine.remoteExecutor.isRemoteProcessRunning(task, pid, job.command)
-           if not isRunning:
-               # Finished! Fetch result.
-               engine.logMsg("Remote task " & task.name & " finished. Fetching result...")
-               discard await engine.remoteExecutor.fetchRemoteResult(task, job.name, runInfo.currentExecId, runInfo.logPath)
-               # Now exitPath should exist (or fetchRemoteResult failed/returned -1)
+           let statusOpt = getTaskStatus(taskId)
+           if statusOpt.isSome:
+               let workerStatus = statusOpt.get
+               # Worker autonomously updates exitCode when task finishes
+               # No blocking - just read the shared state
+               if workerStatus.exitCode >= 0:
+                   # Worker already fetched the result and wrote exit file
+                   # Exit file should exist now, will be processed below
+                   discard
+               # Worker is handling log sync and status checks autonomously
        
        # Check if current execution finished (Local or Remote-Fetched)
        if fileExists(exitPath):
           engine.logMsg("Execution finished for Task " & $taskId & " Job " & $runInfo.currentJobId)
+          
+          # Remove from worker monitoring if remote
+          if hasDetails and task.taskType == ttRemote:
+              removeTaskFromMonitor(taskId)
           
           # Read exit code
           var exitCode = -1
@@ -398,6 +401,10 @@ proc runLoop(engine: SchedulerEngine) {.async.} =
                       nextRun.jobIndex = nextIdx
                       nextRun.logPath = logPath
                       engine.runningTasks[taskId] = nextRun
+                      
+                      # Register next remote task with worker if needed
+                      if task.taskType == ttRemote:
+                          addTaskToMonitor(taskId, execId, pid, logPath, task, nextJob.command)
                    else:
                       engine.runningTasks.del(taskId)
                 else:
@@ -411,54 +418,23 @@ proc runLoop(engine: SchedulerEngine) {.async.} =
              engine.logMsg("Task " & $taskId & " failed at job " & $runInfo.currentJobId)
              engine.runningTasks.del(taskId)
              
-          # Execution finished and processed. Skip remaining logic (like log sync) for this task.
+          # Execution finished and processed. Skip remaining logic for this task.
           continue
        
-       # Sync Remote Logs Periodically (Every ~5s)
-       if hasDetails and task.taskType == ttRemote and loopStart.second != lastSyncSecond and loopStart.second mod 5 == 0:
-            asyncCheck engine.remoteExecutor.syncLogs(task, runInfo.currentExecId, runInfo.logPath)
-       
-       # Sync Remote Logs Periodically (Every ~5s)
-       if loopStart.second != lastSyncSecond and loopStart.second mod 5 == 0:
-           # Update sync time for this second immediately to prevent re-entry in this second
-           # Loop iterates runningTasks again? No, this `if` is inside the task loop?
-           # WAIT. The `if` should be OUTSIDE the task loop for efficiency + debounce logic.
-           # Currently it is inside the task loop in my previous edit?
-           # Let's check `view_file` context from previous edit.
-           # Step 87: replaced lines 360-364...
-           # Line 364 was `await sleepAsync(100)`.
-           # I inserted the block BEFORE sleep.
-           # The block starts `if loopStart.second mod 5 == 0`.
-           # It IS outside the `for (taskId, runInfo) in currentTasks` loop!
-           # Wait, `for (taskId, runInfo) in currentTasks` ends at line 362 `engine.runningTasks.del(taskId)`.
-           # Yes.
-           # So I should just make sure `lastSyncSecond` is updated.
-           
-           # But I cannot update `lastSyncSecond` inside the `if` and inside the `for` loop if I put it there.
-           # I need to put the `if` outside.
-           # In my previous edit I put it AFTER the loop closes?
-           # Let's check indentation.
-           # Line 313: `for (taskId, runInfo) in currentTasks:`
-           # Line 362: `engine.runningTasks.del(taskId)` (End of if/else).
-           # My inserted block (Step 87):
-           # Indentation seemed to match `for` loop or `if`?
-           # `if loopStart.second ...` was indented same as `engine.runningTasks.del`? No.
-           # Let's check `engine.nim` content now to be sure.
-           discard
-           
+       # No explicit log sync needed - worker handles it autonomously
+               
     # Update lastSyncSecond if we hit the interval to prevent repeat
     if loopStart.second mod 5 == 0:
        lastSyncSecond = loopStart.second
 
     # Sleep (High Frequency)
-    await sleepAsync(100) 
+    await sleepAsync(500) 
 
 proc start*(engine: SchedulerEngine) =
   if not engine.running:
     engine.logMsg("Starting scheduler loop (High Frequency)...")
     engine.cleanupManager.start()
     asyncCheck engine.runLoop()
-
 
 proc triggerJob*(engine: SchedulerEngine, jobId: int): Future[bool] {.async.} =
   engine.logMsg("Manual trigger for job ID: " & $jobId)
@@ -534,4 +510,5 @@ proc cancelExecution*(engine: SchedulerEngine, execId: int): bool =
 proc stop*(engine: SchedulerEngine) =
   engine.running = false
   engine.cleanupManager.stop()
+  stopWorker()  # Stop the autonomous worker thread
   engine.logMsg("Stopping scheduler loop...")

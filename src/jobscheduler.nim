@@ -850,6 +850,25 @@ proc handleRequest(req: Request) {.async, gcsafe.} =
 
     # === EXECUTIONS API ===
 
+    # GET /api/running-executions - get all currently running executions
+    if path == "/api/running-executions" and req.reqMethod == HttpGet:
+      try:
+        let runningExecs = getRunningExecutionsSummary(db)
+        var list = newJArray()
+        for exec in runningExecs:
+          list.add(%*{"id": exec.id, "taskId": exec.taskId, "taskName": exec.taskName,
+                     "jobName": exec.jobName, "status": exec.status,
+                     "startTime": $exec.startTime, "endTime": $exec.endTime,
+                     "pid": exec.pid})
+        headers["Content-Type"] = "application/json"
+        await req.respond(Http200, $list, headers)
+      except:
+        let e = getCurrentException()
+        error "Error in /api/running-executions: " & e.msg
+        await req.respond(Http500, $(%*{"error": "Internal Error"}), headers)
+      return
+
+
     # GET /api/stats - get dashboard statistics (for today)
     if path == "/api/stats" and req.reqMethod == HttpGet:
       let stats = getTodayExecutionStats(db)
