@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block title %}{{ taskName }} - Task Details{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>{{ taskName }}</h2>
+    <div class="btn-group">
+        <a href="/tasks" class="btn btn-secondary">← Back</a>
+        <button onclick="triggerTask()" class="btn">Trigger Task</button>
+        <a href="/tasks/{{ taskId }}/edit" class="btn">Edit</a>
+    </div>
+</div>
+
+<div class="grid">
+    <div class="section">
+        <h3>Task Information</h3>
+        <dl class="details">
+            <dt>Name</dt>
+            <dd id="task-name">-</dd>
+            <dt>Description</dt>
+            <dd id="task-description">-</dd>
+            <dt>Type</dt>
+            <dd id="task-type">-</dd>
+            <dt>Status</dt>
+            <dd id="task-status">-</dd>
+            <dt>Next Run</dt>
+            <dd id="task-next">-</dd>
+            <dt>SSH Host</dt>
+            <dd id="task-ssh">-</dd>
+        </dl>
+    </div>
+
+    <div class="section">
+        <h3>Execution History</h3>
+        <canvas id="historyChart" style="max-height: 200px; width: 100%;"></canvas>
+    </div>
+</div>
+
+<div class="section">
+    <h3>Jobs</h3>
+    <div class="table-container">
+        <table id="jobs-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Command</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="jobs-body">
+                <tr>
+                    <td colspan="5" class="loading">Loading...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="section">
+    <h3>Configuration</h3>
+    <pre><code class="language-yaml" id="task-config">Loading...</code></pre>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const taskId = {{ taskId }};
+
+    async function loadTaskDetails() {
+        try {
+            const response = await fetch(`/api/tasks/${taskId}`);
+            const task = await response.json();
+
+            document.getElementById('task-name').textContent = task.name;
+            document.getElementById('task-description').textContent = task.description || 'N/A';
+            document.getElementById('task-type').innerHTML = `<span class="badge">${task.type}</span>`;
+            document.getElementById('task-status').innerHTML = `<span class="status-badge ${task.enabled ? 'success' : 'failed'}">${task.enabled ? 'Enabled' : 'Disabled'}</span>`;
+            if (task.nextTrigger) {
+                try {
+                    const d = new Date(task.nextTrigger);
+                    document.getElementById('task-next').textContent = d.toLocaleString();
+                } catch (e) { document.getElementById('task-next').textContent = task.nextTrigger; }
+            } else {
+                document.getElementById('task-next').textContent = '-';
+            }
+            document.getElementById('task-ssh').textContent = task.sshHost ? `${task.sshUser}@${task.sshHost}` : 'N/A';
+
+            // Show Schedule info based on type
+            let details = document.querySelector('.details');
+
+            // Map internal enum to display names
+            const scheduleTypeMap = {
+                'stCron': 'Cron',
+                'stTime': 'Time of Day',
+                'stInterval': 'Interval',
+                'stOnStart': 'On Start'
+            };
+            const scheduleTypeName = scheduleTypeMap[task.scheduleType] || task.scheduleType;
+
+            // Conditionally show schedule details based on type
+            if (task.scheduleType === 'stCron' || task.scheduleType === 'cron') {
+                details.innerHTML += `<dt>Schedule Type</dt><dd><span class="badge">${scheduleTypeName}</span></dd>`;
+                details.innerHTML += `<dt>Cron Expression</dt><dd><code>${task.cronExpr || 'N/A'}</code></dd>`;
+            } else if (task.scheduleType === 'stTime' || task.scheduleType === 'time') {
+                details.innerHTML += `<dt>Schedule Type</dt><dd><span class="badge">${scheduleTypeName}</span></dd>`;
+                details.innerHTML += `<dt>Time of Day</dt><dd>${task.timeOfDay || 'N/A'}</dd>`;
+            } else if (task.scheduleType === 'stInterval' || task.scheduleType === 'interval') {
+                details.innerHTML += `<dt>Schedule Type</dt><dd><span class="badge">${scheduleTypeName}</span></dd>`;
+                details.innerHTML += `<dt>Interval</dt><dd>${task.intervalMinutes}m</dd>`;
+                if (task.intervalStart && task.intervalEnd) {
+                    details.innerHTML += `<dt>Active Window</dt><dd>${task.intervalStart} - ${task.intervalEnd}</dd>`;
+                }
+            }
+
+            // Always show timezone
+            details.innerHTML += `<dt>Timezone</dt><dd>${task.timezone || 'Server Local Time'}</dd>`;
+
+            // Show calendar file if specified and supported (Time/Interval)
+            if (task.calendarPath && (task.scheduleType === 'stTime' || task.scheduleType === 'time' || task.scheduleType === 'stInterval' || task.scheduleType === 'interval')) {
+                details.innerHTML += `<dt>Calendar File</dt><dd><code>${task.calendarPath}</code></dd>`;
+            }
+
+            // Show Source Content
+            const configEl = document.getElementById('task-config');
+            if (task.sourceContent) {
+                configEl.textContent = task.sourceContent;
+                Prism.highlightElement(configEl);
+            } else {
+                configEl.textContent = "# No source file or content available";
+            }
+        } catch (error) {
+            console.error('Error loading task:', error);
+        }
+    }
+
+    async function loadJobs() {
+        try {
+            const response = await fetch(`/api/tasks/${taskId}/jobs`);
+            const jobs = await response.json();
+
+            // Load history for chart
+            if (jobs.length > 0) {
+                loadChartData(jobs.map(j => j.id));
+            }
+
+            const tbody = document.getElementById('jobs-body');
+            if (jobs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="no-data">No jobs found</td></tr>';
+                return;
+            }
+
+            // Removed Schedule column
+            tbody.innerHTML = jobs.map(job => `
+            <tr>
+                <td>${job.name}</td>
+                <td><code>${job.command}</code></td>
+                <td><span class="status-badge ${job.enabled ? 'success' : 'failed'}">${job.enabled ? 'Enabled' : 'Disabled'}</span></td>
+                <td class="actions-cell">
+                    <a href="/jobs/${job.id}/history" class="btn btn-sm">History</a>
+                    ${job.lastExecutionId ? `<a href="/executions/${job.lastExecutionId}/log" class="btn btn-sm">Log</a>` : ''}
+                    <button onclick="triggerJob(${job.id})" class="btn btn-sm">Run Now</button>
+                    <!-- Order: ${job.order || ''} -->
+                </td>
+            </tr>
+        `).join('');
+
+        } catch (error) {
+            console.error('Error loading jobs:', error);
+        }
+    }
+
+    async function loadChartData(jobIds) {
+        // Simplified: fetching history for first job only for demo
+        // Real impl would aggregate all
+        if (!jobIds.length) return;
+
+        try {
+            const res = await fetch(`/api/jobs/${jobIds[0]}/history`);
+            const history = await res.json();
+            renderChart(history.reverse());
+        } catch (e) { console.error(e); }
+    }
+
+    function renderChart(history) {
+        const ctx = document.getElementById('historyChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: history.map(h => new Date(h.startTime).toLocaleTimeString()),
+                datasets: [{
+                    label: 'Duration (s)',
+                    data: history.map(h => (new Date(h.endTime) - new Date(h.startTime)) / 1000),
+                    borderColor: '#2563eb',
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
+
+    async function triggerTask() {
+        showConfirmModal('Trigger Task', 'Trigger all jobs in this task sequentially?', async () => {
+            try {
+                const response = await fetch(`/api/tasks/${taskId}/trigger`, { method: 'POST' });
+                if (response.ok) {
+                    alert('Task triggered successfully');
+                } else {
+                    const data = await response.json();
+                    alert('Failed to trigger task: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Failed to trigger task: ' + error);
+            }
+        });
+    }
+
+    async function triggerJob(jobId) {
+        showConfirmModal('Trigger Job', 'Trigger this job now?', async () => {
+            try {
+                await fetch(`/api/jobs/${jobId}/trigger`, { method: 'POST' });
+                alert('Job triggered successfully');
+            } catch (error) {
+                alert('Failed to trigger job: ' + error);
+            }
+        });
+    }
+
+    loadTaskDetails();
+    loadJobs();
+</script>
+<style>
+    .actions-cell {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        vertical-align: middle;
+        min-height: 2.5rem;
+    }
+
+    .actions-cell .btn,
+    .actions-cell button {
+        display: inline-flex;
+        align-items: center;
+        white-space: nowrap;
+        height: fit-content;
+        min-height: 2rem;
+        line-height: 1.5;
+        padding: 0.25rem 0.75rem;
+        box-sizing: border-box;
+    }
+</style>
+{% endblock %}

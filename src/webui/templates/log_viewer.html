@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Log Viewer - Execution #{{ execId }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Log Viewer - Execution #{{ execId }}</h2>
+    <div class="btn-group">
+        <a href="javascript:history.back()" class="btn btn-secondary">← Back</a>
+        <button onclick="downloadLog()" class="btn">Download</button>
+        <button onclick="toggleAutoScroll()" class="btn" id="autoscroll-btn">Auto-scroll: ON</button>
+    </div>
+</div>
+
+<div class="section">
+    <div id="log-info" class="log-info">
+        <span>Status: <span id="exec-status" class="status-badge">-</span></span>
+        <span>Started: <span id="exec-start">-</span></span>
+        <span>PID: <span id="exec-pid">-</span></span>
+        <span>File: <span id="exec-file">-</span></span>
+    </div>
+
+    <div class="log-viewer">
+        <pre><code id="log-content" class="language-bash">Loading log...</code></pre>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const execId = {{ execId }};
+    let autoScroll = true;
+    let eventSource = null;
+
+    function toggleAutoScroll() {
+        autoScroll = !autoScroll;
+        document.getElementById('autoscroll-btn').textContent = `Auto-scroll: ${autoScroll ? 'ON' : 'OFF'}`;
+    }
+
+    function downloadLog() {
+        window.location.href = `/api/logs/${execId}?download=1`;
+    }
+
+    function scrollToBottom() {
+        if (autoScroll) {
+            const logContent = document.getElementById('log-content');
+            logContent.scrollTop = logContent.scrollHeight;
+        }
+    }
+
+    async function loadExecutionInfo() {
+        try {
+            const response = await fetch(`/api/executions?id=${execId}`);
+            const result = await response.json();
+            const executions = result.data || result;
+            if (executions.length > 0) {
+                const exec = executions[0];
+                document.getElementById('exec-status').textContent = exec.status;
+                document.getElementById('exec-status').className = `status-badge status-${exec.status.toLowerCase()}`;
+                document.getElementById('exec-start').textContent = new Date(exec.startTime).toLocaleString();
+                document.getElementById('exec-pid').textContent = exec.pid || '-';
+                document.getElementById('exec-file').textContent = exec.logFile || 'Unknown';
+            }
+        } catch (error) {
+            console.error('Error loading execution info:', error);
+        }
+    }
+
+    async function loadLogContent() {
+        try {
+            const response = await fetch(`/api/logs/${execId}`);
+            const content = await response.text();
+            const el = document.getElementById('log-content');
+            el.textContent = content || 'No log content available';
+            Prism.highlightElement(el);
+            scrollToBottom();
+        } catch (error) {
+            document.getElementById('log-content').textContent = 'Error loading log: ' + error;
+        }
+    }
+
+    // Real-time log streaming using SSE
+    function startLogPolling() {
+        // Initial load
+        loadLogContent();
+
+        // SSE connection
+        const el = document.getElementById('log-content');
+        const source = streamLog(execId, el);
+
+        // Re-highlight periodically if streaming
+        setInterval(() => {
+            if (source.readyState === 1) Prism.highlightElement(el);
+        }, 2000);
+    }
+
+    loadExecutionInfo();
+    startLogPolling();
+</script>
+
+<style>
+    .log-viewer {
+        background: #1e1e1e;
+        border-radius: 4px;
+        margin-top: 1rem;
+        max-height: 600px;
+        overflow-y: auto;
+    }
+
+    .log-viewer pre {
+        color: #d4d4d4;
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 0.875rem;
+        line-height: 1.5;
+        padding: 1rem;
+        margin: 0;
+    }
+
+    .log-info {
+        display: flex;
+        gap: 2rem;
+        padding: 1rem;
+        background: var(--light);
+        border-radius: 4px;
+    }
+
+    .log-info span {
+        font-size: 0.875rem;
+    }
+
+    .btn-group {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .btn-secondary {
+        background: #6b7280;
+    }
+
+    .btn-secondary:hover {
+        background: #4b5563;
+    }
+</style>
+{% endblock %}

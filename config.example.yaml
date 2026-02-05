@@ -1,0 +1,24 @@
+tasksDir: "tasks"
+database:
+  path: "jobscheduler.db"
+server:
+  host: "0.0.0.0"
+  port: 8080
+  externalHost: "localhost:8080"
+  sslCert: ""
+  sslKey: ""
+smtp:
+  enabled: false
+  host: "smtp.example.com"
+  port: 587
+  password: "password"
+  fromAddr: "scheduler@example.com"
+  toAddrs:
+    - "admin@example.com"
+ssh:
+  defaultKeyPath: "/home/user/.ssh/id_rsa"
+internal:
+  logRetentionDays: 30
+auth:
+  username: "admin"
+  password: "changeme"

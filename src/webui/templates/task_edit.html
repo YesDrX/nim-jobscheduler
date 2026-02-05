@@ -1,0 +1,471 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Task - Job Scheduler{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2 id="page-title">Edit Task</h2>
+    <a href="/tasks" class="btn btn-secondary">Cancel</a>
+</div>
+
+<div class="section">
+    <form id="task-form">
+        <div class="form-container">
+            <!-- General Settings -->
+            <h3 class="section-title">General Information</h3>
+            <div class="form-row">
+                <label for="name">Task Name</label>
+                <div class="input-wrapper">
+                    <input type="text" id="name" name="name" required placeholder="My Daily Cleanup">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <label for="description">Description</label>
+                <div class="input-wrapper">
+                    <textarea id="description" name="description" rows="2"
+                        placeholder="Describe what this task does..."></textarea>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <label>Commands</label>
+                <div class="input-wrapper">
+                    <div id="commands-container">
+                        <div class="command-item">
+                            <textarea name="command" rows="3" required placeholder="/path/to/script.sh"
+                                class="code-font command-input"></textarea>
+                            <button type="button" class="btn btn-sm btn-danger remove-command" style="display:none;"
+                                onclick="removeCommand(this)">Remove</button>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm" onclick="addCommand()" style="margin-top: 0.5rem;">+ Add
+                        Command</button>
+                    <p class="help-text">Each command creates a job. Jobs run sequentially - next job runs only if
+                        previous one succeeds.</p>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <label>Status</label>
+                <div class="input-wrapper">
+                    <label class="switch-label">
+                        <label class="switch">
+                            <input type="checkbox" id="enabled" name="enabled" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <span style="margin-left: 10px">Enabled</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="separator"></div>
+
+            <!-- Execution Settings -->
+            <h3 class="section-title">Execution Environment</h3>
+            <div class="form-row">
+                <label for="type">Type</label>
+                <div class="input-wrapper">
+                    <select id="type" name="type" required onchange="toggleSshFields()">
+                        <option value="local">Local Execution (Server)</option>
+                        <option value="remote">Remote Execution (SSH)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="ssh-fields" style="display:none">
+                <div class="form-row">
+                    <label for="sshHost">SSH Host</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="sshHost" name="sshHost" placeholder="192.168.1.50">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label for="sshUser">SSH User</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="sshUser" name="sshUser" placeholder="root">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label for="sshKeyPath">SSH Key Filename</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="sshKeyPath" name="sshKeyPath" placeholder="~/.ssh/id_rsa">
+                        <p class="help-text">Path to SSH private key file for authentication.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Initial Schedule (Create Only) -->
+            <div id="schedule-section">
+                <div class="separator"></div>
+                <h3 class="section-title">Initial Schedule</h3>
+
+                <div class="form-row">
+                    <label for="scheduleType">Method</label>
+                    <div class="input-wrapper">
+                        <select id="scheduleType" name="scheduleType" onchange="toggleScheduleFields()">
+                            <option value="cron">Cron Expression</option>
+                            <option value="time">Trigger at Time</option>
+                            <option value="interval">Interval (Minutes)</option>
+                            <option value="onstart">On Start</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <label for="timezone">Timezone</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="timezone" name="timezone" placeholder="UTC or America/New_York">
+                        <p class="help-text">IANA Timezone name. Leave empty for Server Local Time.</p>
+                    </div>
+                </div>
+
+                <div id="cron-field">
+                    <div class="form-row">
+                        <label for="cronExpr">Expression</label>
+                        <div class="input-wrapper">
+                            <input type="text" id="cronExpr" name="cronExpr" placeholder="0 0 * * *">
+                            <p class="help-text">Standard Cron format (e.g. Daily at midnight)</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="time-field" style="display:none">
+                    <div class="form-row">
+                        <label for="timeOfDay">Time (HH:MM)</label>
+                        <div class="input-wrapper">
+                            <input type="time" id="timeOfDay" name="timeOfDay" value="00:00">
+                            <p class="help-text">Daily trigger at specified time (24-hour format).</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="interval-field" style="display:none">
+                    <div class="form-row">
+                        <label for="intervalMinutes">Minutes</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="intervalMinutes" name="intervalMinutes" value="60" min="1">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label>Active Window</label>
+                        <div class="input-wrapper">
+                            <div style="display:flex; gap: 10px; align-items: center;">
+                                <input type="time" id="intervalStart" name="intervalStart">
+                                <span>to</span>
+                                <input type="time" id="intervalEnd" name="intervalEnd">
+                            </div>
+                            <p class="help-text">Optional. Only trigger between these times.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-row" id="calendar-field">
+                    <label for="calendarPath">Calendar File</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="calendarPath" name="calendarPath" placeholder="/path/to/holidays.txt">
+                        <p class="help-text">Optional. Provide absolute path to an allowlist file (YYYY-MM-DD).</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary" id="save-btn">Create Task</button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const isNew = window.location.pathname.endsWith('/new');
+    const taskId = isNew ? null : window.location.pathname.split('/')[2];
+
+    document.getElementById('page-title').textContent = isNew ? 'New Task' : 'Edit Task';
+    document.getElementById('save-btn').textContent = isNew ? 'Create Task' : 'Save Changes';
+
+    // Schedule editing is now allowed
+    // if (!isNew) {
+    //     document.getElementById('schedule-section').style.display = 'none';
+    // }
+
+    function toggleSshFields() {
+        const type = document.getElementById('type').value;
+        document.getElementById('ssh-fields').style.display = type === 'remote' ? 'block' : 'none';
+    }
+
+    function toggleScheduleFields() {
+        const type = document.getElementById('scheduleType').value;
+        document.getElementById('cron-field').style.display = type === 'cron' ? 'block' : 'none';
+        document.getElementById('time-field').style.display = type === 'time' ? 'block' : 'none';
+        document.getElementById('interval-field').style.display = type === 'interval' ? 'block' : 'none';
+
+        // Calendar allowed only for time and interval
+        const allowCalendar = type === 'time' || type === 'interval';
+        document.getElementById('calendar-field').style.display = allowCalendar ? 'block' : 'none';
+    }
+
+    function addCommand(value = '') {
+        const container = document.getElementById('commands-container');
+        const newItem = document.createElement('div');
+        newItem.className = 'command-item';
+        newItem.innerHTML = `
+        <textarea name="command" rows="3" required placeholder="/path/to/script.sh" class="code-font command-input"></textarea>
+        <button type="button" class="btn btn-sm btn-danger remove-command" onclick="removeCommand(this)">Remove</button>
+    `;
+        newItem.querySelector('textarea').value = value;
+        container.appendChild(newItem);
+        updateRemoveButtons();
+    }
+
+    function removeCommand(btn) {
+        const container = document.getElementById('commands-container');
+        if (container.children.length > 1) {
+            btn.closest('.command-item').remove();
+            updateRemoveButtons();
+        }
+    }
+
+    function updateRemoveButtons() {
+        const container = document.getElementById('commands-container');
+        const removeButtons = container.querySelectorAll('.remove-command');
+        removeButtons.forEach(btn => {
+            btn.style.display = container.children.length > 1 ? 'inline-block' : 'none';
+        });
+    }
+
+    async function loadTask() {
+        if (isNew) return;
+
+        try {
+            const res = await apiCall(`/api/tasks/${taskId}`);
+            if (res && res.ok) {
+                const task = await res.json();
+                document.getElementById('name').value = task.name;
+                document.getElementById('description').value = task.description || '';
+
+                // Commands
+                const container = document.getElementById('commands-container');
+                container.innerHTML = '';
+                if (task.commands && task.commands.length > 0) {
+                    task.commands.forEach(cmd => addCommand(cmd));
+                } else {
+                    addCommand();
+                }
+
+                document.getElementById('type').value = task.type;
+                document.getElementById('sshHost').value = task.sshHost || '';
+                document.getElementById('sshUser').value = task.sshUser || '';
+                document.getElementById('sshKeyPath').value = task.sshKeyPath || '';
+                document.getElementById('enabled').checked = task.enabled;
+
+                // Map Schedule Type (Enum string to value)
+                let sType = task.scheduleType;
+                if (sType === 'stCron') sType = 'cron';
+                if (sType === 'stTime') sType = 'time';
+                if (sType === 'stInterval') sType = 'interval';
+                if (sType === 'stOnStart') sType = 'onstart';
+                if (!['cron', 'time', 'interval', 'onstart'].includes(sType)) sType = 'cron';
+
+                document.getElementById('scheduleType').value = sType;
+                document.getElementById('cronExpr').value = task.cronExpr || '';
+                document.getElementById('timeOfDay').value = task.timeOfDay || '';
+                document.getElementById('timezone').value = task.timezone || '';
+                document.getElementById('intervalMinutes').value = task.intervalMinutes || 60;
+                document.getElementById('intervalStart').value = task.intervalStart || '';
+                document.getElementById('intervalEnd').value = task.intervalEnd || '';
+                document.getElementById('calendarPath').value = task.calendarPath || '';
+
+                toggleSshFields();
+                toggleScheduleFields();
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Failed to load task');
+        }
+    }
+
+    document.getElementById('task-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        // Collect commands
+        const commandInputs = document.querySelectorAll('.command-input');
+        const commands = Array.from(commandInputs).map(input => input.value.trim()).filter(cmd => cmd.length > 0);
+
+        if (commands.length === 0) {
+            alert('At least one command is required');
+            return;
+        }
+
+        // Basic data
+        const data = {
+            name: document.getElementById('name').value,
+            description: document.getElementById('description').value,
+            commands: commands, // Array of commands
+            type: document.getElementById('type').value,
+            sshHost: document.getElementById('sshHost').value,
+            sshUser: document.getElementById('sshUser').value,
+            sshKeyPath: document.getElementById('sshKeyPath').value || '',
+            enabled: document.getElementById('enabled').checked
+        };
+
+        // Schedule data
+        data.scheduleType = document.getElementById('scheduleType').value;
+        data.cronExpr = document.getElementById('cronExpr').value || '';
+        data.timeOfDay = document.getElementById('timeOfDay').value || '';
+        data.timezone = document.getElementById('timezone').value || '';
+        data.intervalMinutes = parseInt(document.getElementById('intervalMinutes').value) || 0;
+        data.intervalStart = document.getElementById('intervalStart').value || '';
+        data.intervalEnd = document.getElementById('intervalEnd').value || '';
+        data.calendarPath = document.getElementById('calendarPath').value || '';
+
+        const url = isNew ? '/api/tasks' : `/api/tasks/${taskId}`;
+        const method = isNew ? 'POST' : 'PUT';
+
+        try {
+            const res = await apiCall(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            if (res && res.ok) {
+                window.location.href = '/tasks';
+            } else {
+                alert('Failed to save task');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error saving task');
+        }
+    });
+
+    updateRemoveButtons();
+    loadTask();
+</script>
+
+<style>
+    .form-container {
+        background: var(--bg-card);
+        padding: 2rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        max-width: 800px;
+        margin: 0 auto;
+        color: var(--text);
+    }
+
+    .section-title {
+        margin-top: 0;
+        margin-bottom: 1.5rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border);
+        color: var(--primary);
+        font-size: 1.25rem;
+    }
+
+    .separator {
+        height: 1px;
+        background: var(--border);
+        margin: 2rem 0;
+    }
+
+    .form-row {
+        display: flex;
+        margin-bottom: 1.5rem;
+        align-items: flex-start;
+    }
+
+    .form-row>label {
+        width: 200px;
+        /* Fixed width sidebar labels */
+        padding-top: 0.5rem;
+        font-weight: 600;
+        flex-shrink: 0;
+        color: var(--text-muted);
+    }
+
+    .input-wrapper {
+        flex-grow: 1;
+    }
+
+    .input-wrapper input[type="text"],
+    .input-wrapper input[type="number"],
+    .input-wrapper select,
+    .input-wrapper textarea {
+        width: 100%;
+        padding: 0.6rem;
+        border: 1px solid var(--input-border);
+        border-radius: 4px;
+        font-size: 1rem;
+        background: var(--input-bg);
+        color: var(--text);
+        transition: border-color 0.2s;
+    }
+
+    .input-wrapper input:focus,
+    .input-wrapper select:focus,
+    .input-wrapper textarea:focus {
+        border-color: var(--primary);
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+    }
+
+    .code-font {
+        font-family: monospace;
+        background: var(--light);
+        /* Use light variable which adapts (light gray in light mode, dark gray in dark mode) */
+    }
+
+    .help-text {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        margin-top: 0.4rem;
+        margin-bottom: 0;
+    }
+
+    .command-item {
+        margin-bottom: 1rem;
+        display: flex;
+        gap: 0.5rem;
+        align-items: flex-start;
+    }
+
+    .command-item .command-input {
+        flex: 1;
+    }
+
+    .command-item .remove-command {
+        margin-top: 0;
+    }
+
+    .form-actions {
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: flex-end;
+    }
+
+    .switch-label {
+        display: flex;
+        align-items: center;
+        font-weight: normal;
+        cursor: pointer;
+        color: var(--text);
+    }
+
+    /* Response for smaller screens */
+    @media (max-width: 600px) {
+        .form-row {
+            flex-direction: column;
+        }
+
+        .form-row>label {
+            width: 100%;
+            margin-bottom: 0.5rem;
+        }
+    }
+</style>
+{% endblock %}

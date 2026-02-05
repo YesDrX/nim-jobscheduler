@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+
+{% block title %}Tasks - Job Scheduler{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Tasks</h2>
+    <a href="/tasks/new" class="btn">+ New Task</a>
+</div>
+
+<div class="section">
+    <div class="search-container" style="margin-bottom: 1rem; display: flex; align-items: center; gap: 1rem;">
+        <input type="text" id="task-search" placeholder="Search tasks by name..."
+            style="flex: 1; max-width: 400px; padding: 0.5rem; border: 1px solid var(--input-border); border-radius: 4px; font-size: 1rem;">
+        <div id="breadcrumbs" style="font-weight: 500; font-size: 1.1rem; color: var(--text-color);">
+            <a href="#" onclick="enterFolder(''); return false;">Home</a>
+        </div>
+    </div>
+
+    <div id="folder-grid" class="folder-grid"></div>
+
+    <div class="table-container">
+        <table id="tasks-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Next Run</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="tasks-body">
+                <tr>
+                    <td colspan="5" class="loading">Loading...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="pagination" class="pagination"
+        style="margin-top: 1rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem;"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let allTasks = [];
+    let currentPage = 1;
+    let paginationInfo = null;
+    let currentFolder = "";
+
+    async function loadTasks(page = 1) {
+        currentPage = page;
+        try {
+            const response = await fetch(`/api/tasks?page=${page}&limit=1000`); // Fetch all for sorting/filtering client side for now as folders break pagination complexity
+            const result = await response.json();
+            allTasks = result.data || result;
+            paginationInfo = result.pagination || null;
+            renderView();
+        } catch (error) {
+            console.error('Error loading tasks:', error);
+            document.getElementById('tasks-body').innerHTML =
+                '<tr><td colspan="6" class="error">Error loading tasks</td></tr>';
+        }
+    }
+
+    function enterFolder(folder) {
+        currentFolder = folder;
+        renderView();
+    }
+
+    function renderView() {
+        updateBreadcrumbs();
+        filterTasks();
+    }
+
+    function updateBreadcrumbs() {
+        const el = document.getElementById('breadcrumbs');
+        let html = `<a href="#" onclick="enterFolder(''); return false;">Home</a>`;
+
+        if (currentFolder) {
+            const parts = currentFolder.split('/'); // Assuming / separator for now, or just use groupName logic
+            // But wait, groupName in DB is populated from path with OS separator.
+            // Sync service uses `relativePath`. On Linux it uses `/`.
+            // So we can assume `/`.
+
+            let pathAccum = "";
+            parts.forEach((part, idx) => {
+                pathAccum += (idx > 0 ? "/" : "") + part;
+                html += ` &gt; <a href="#" onclick="enterFolder('${pathAccum}'); return false;">${part}</a>`;
+            });
+        }
+        el.innerHTML = html;
+    }
+
+    function updatePagination() {
+        // Client side pagination disabled for folder view for simplicity, or we re-implement it?
+        // The request implies logic change: "tasks page will be like a few folders...". 
+        // We'll hide server pagination for now since we are filtering client side.
+        document.getElementById('pagination').style.display = 'none';
+    }
+
+    function filterTasks() {
+        const searchTerm = document.getElementById('task-search').value.toLowerCase();
+        const tbody = document.getElementById('tasks-body');
+        const folderGrid = document.getElementById('folder-grid');
+
+        let taskHtml = '';
+        let folderHtml = '';
+
+        // 1. Collect Folders and Tasks for current level
+        const visibleTasks = [];
+        const visibleFolders = new Map(); // name -> count
+
+        allTasks.forEach(task => {
+            if (searchTerm && !task.name.toLowerCase().includes(searchTerm)) return;
+
+            const tGroup = task.groupName || "";
+
+            if (currentFolder === "") {
+                if (tGroup === "") {
+                    visibleTasks.push(task);
+                } else {
+                    // Top level folder
+                    const parts = tGroup.split("/");
+                    const topFolder = parts[0];
+                    visibleFolders.set(topFolder, (visibleFolders.get(topFolder) || 0) + 1);
+                }
+            } else {
+                if (tGroup === currentFolder) {
+                    visibleTasks.push(task);
+                } else if (tGroup.startsWith(currentFolder + "/")) {
+                    const subPath = tGroup.substring(currentFolder.length + 1);
+                    const parts = subPath.split("/");
+                    const nextFolder = parts[0];
+                    visibleFolders.set(nextFolder, (visibleFolders.get(nextFolder) || 0) + 1);
+                }
+            }
+        });
+
+        // Render Folders
+        visibleFolders.forEach((count, name) => {
+            const fullPath = currentFolder ? currentFolder + "/" + name : name;
+            folderHtml += `
+            <div class="folder-card" onclick="enterFolder('${fullPath}')">
+                <div class="folder-icon">📁</div>
+                <div class="folder-name">${name}</div>
+                <div class="folder-count">${count} tasks</div>
+            </div>
+        `;
+        });
+
+        folderGrid.innerHTML = folderHtml;
+
+        // Render Tasks
+        if (visibleTasks.length === 0) {
+            if (visibleFolders.size === 0) {
+                taskHtml = '<tr><td colspan="6" class="no-data">No tasks or folders found</td></tr>';
+            } else {
+                taskHtml = '<tr><td colspan="6" class="no-data" style="text-align: center; color: #888;">Select a folder or create a task above</td></tr>';
+            }
+        } else {
+            taskHtml = visibleTasks.map(task => `
+            <tr>
+                <td>
+                    <div style="display:flex; align-items:center; gap: 5px;">
+                        <a href="/tasks/${task.id}" class="link" onclick="event.stopPropagation()">${task.name}</a>
+                         ${task.warnings && task.warnings.length > 0 ?
+                    `<span class="warning-icon" title="${task.warnings.join('\\n')}">⚠️</span>` : ''}
+                    </div>
+                </td>
+                <td>${task.description || '-'}</td>
+                <td><span class="badge">${task.type}</span></td>
+                <td>
+                    <label class="switch" onclick="event.stopPropagation()">
+                        <input type="checkbox" ${task.enabled ? 'checked' : ''} onchange="toggleTask(${task.id}, this)">
+                        <span class="slider"></span>
+                    </label>
+                </td>
+                <td>${formatNextRun(task.nextTrigger)}</td>
+                <td class="actions-cell" onclick="event.stopPropagation()">
+                    <a href="/tasks/${task.id}/edit" class="btn btn-sm">Edit</a>
+                    <button onclick="triggerTask(${task.id})" class="btn btn-sm">Trigger</button>
+                    <button onclick="deleteTask(${task.id})" class="btn btn-sm btn-danger">Delete</button>
+                </td>
+            </tr>
+        `).join('');
+        }
+
+        tbody.innerHTML = taskHtml;
+    }
+
+    document.getElementById('task-search').addEventListener('input', renderView);
+
+    async function triggerTask(taskId) {
+        showConfirmModal('Trigger Task', 'Trigger all jobs in this task sequentially?', async () => {
+            try {
+                const response = await fetch(`/api/tasks/${taskId}/trigger`, { method: 'POST' });
+                if (response.ok) {
+                    alert('Task triggered successfully');
+                } else {
+                    const data = await response.json();
+                    alert('Failed to trigger task: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Failed to trigger task: ' + error);
+            }
+        });
+    }
+
+    async function toggleTask(taskId, checkbox) {
+        const enabled = checkbox.checked;
+        try {
+            await apiCall(`/api/tasks/${taskId}/toggle`, { method: 'POST', body: JSON.stringify({ enabled }) });
+            console.log(`Toggling task ${taskId} to ${enabled}`);
+        } catch (error) {
+            console.error('Error toggling task:', error);
+            checkbox.checked = !enabled; // Revert UI on error
+            alert('Failed to update task status');
+        }
+    }
+
+    async function deleteTask(taskId) {
+        showConfirmModal('Delete Task', 'Are you sure you want to delete this task?', async () => {
+            try {
+                const res = await apiCall(`/api/tasks/${taskId}`, { method: 'DELETE' });
+                if (res && res.ok) {
+                    loadTasks(currentPage);
+                } else {
+                    alert('Failed to delete task');
+                }
+            } catch (error) {
+                console.error('Error deleting task:', error);
+            }
+        });
+    }
+
+    loadTasks();
+
+    function formatNextRun(dtStr) {
+        if (!dtStr) return '-';
+        try {
+            const d = new Date(dtStr);
+            return d.toLocaleString();
+        } catch (e) { return dtStr; }
+    }
+</script>
+<style>
+    .actions-cell {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        vertical-align: middle;
+        min-height: 2.5rem;
+    }
+
+    .actions-cell .btn,
+    .actions-cell button {
+        display: inline-flex;
+        align-items: center;
+        white-space: nowrap;
+        height: fit-content;
+        min-height: 2rem;
+        line-height: 1.5;
+    }
+
+    .warning-icon {
+        font-size: 1.1rem;
+        cursor: help;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0% {
+            opacity: 0.8;
+        }
+
+        50% {
+            opacity: 1;
+            transform: scale(1.1);
+        }
+
+        100% {
+            opacity: 0.8;
+        }
+    }
+
+    .folder-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .folder-card {
+        background: var(--bg-card, #fff);
+        border: 1px solid var(--border-color, #ddd);
+        border-radius: 8px;
+        padding: 1rem;
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+
+    .folder-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .folder-icon {
+        font-size: 2.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .folder-name {
+        font-weight: 600;
+        margin-bottom: 0.2rem;
+        font-size: 0.95rem;
+        word-break: break-word;
+        color: var(--text, #333);
+    }
+
+    .folder-count {
+        font-size: 0.8rem;
+        color: var(--text-muted, #666);
+    }
+</style>
+{% endblock %}

@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+
+{% block title %}Daily Schedule - Job Scheduler{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Daily Schedule</h2>
+    <div class="date-controls" style="display: flex; gap: 0.5rem; align-items: center;">
+        <button onclick="changeDate(-1)" class="btn btn-secondary">←</button>
+        <input type="date" id="schedule-date" class="form-input" onchange="loadSchedule()">
+        <button onclick="changeDate(1)" class="btn btn-secondary">→</button>
+        <button onclick="goToToday()" class="btn btn-sm">Today</button>
+    </div>
+</div>
+
+<div class="section">
+    <div id="loading" class="loading">Loading schedule...</div>
+    <div id="schedule-container" style="display: none;">
+        <div id="timeline"></div>
+        <div id="no-schedule" class="no-data" style="display: none;">No tasks scheduled for this day</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentDate = new Date();
+
+    function formatDateForInput(date) {
+        return date.toISOString().split('T')[0];
+    }
+
+    function initDate() {
+        // Set date picker to today
+        const picker = document.getElementById('schedule-date');
+        picker.value = formatDateForInput(currentDate);
+        loadSchedule();
+    }
+
+    function changeDate(days) {
+        currentDate.setDate(currentDate.getDate() + days);
+        document.getElementById('schedule-date').value = formatDateForInput(currentDate);
+        loadSchedule();
+    }
+
+    function goToToday() {
+        currentDate = new Date();
+        document.getElementById('schedule-date').value = formatDateForInput(currentDate);
+        loadSchedule();
+    }
+
+    async function loadSchedule() {
+        const dateStr = document.getElementById('schedule-date').value;
+        // Parse input date back to object to be safe
+        currentDate = new Date(dateStr);
+
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('schedule-container').style.display = 'none';
+
+        try {
+            const response = await fetch(`/api/schedule?date=${dateStr}`);
+            const tasks = await response.json();
+
+            renderTimeline(tasks);
+        } catch (error) {
+            console.error(error);
+            document.getElementById('loading').textContent = 'Error loading schedule';
+        }
+    }
+
+    function renderTimeline(tasks) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('schedule-container').style.display = 'block';
+        const timeline = document.getElementById('timeline');
+        timeline.innerHTML = '';
+
+        // 1. Flatten all triggers
+        let events = [];
+        let summaries = []; // Tasks with summaries but no explicit triggers (High frequency)
+
+        tasks.forEach(t => {
+            if (t.triggers && t.triggers.length > 0) {
+                t.triggers.forEach(dt => {
+                    events.push({
+                        time: new Date(dt),
+                        taskName: t.taskName,
+                        taskId: t.taskId,
+                        type: t.type
+                    });
+                });
+            }
+            if (t.summary || t.isHighFrequency) {
+                summaries.push(t);
+            }
+        });
+
+        // Sort events by time
+        events.sort((a, b) => a.time - b.time);
+
+        // Render Summary Section
+        if (summaries.length > 0) {
+            const summaryDiv = document.createElement('div');
+            summaryDiv.className = 'schedule-summary-section';
+
+            summaryDiv.innerHTML = '<h3>Repeating / High Frequency Tasks</h3>';
+            const list = document.createElement('ul');
+            list.className = 'summary-list';
+
+            summaries.forEach(t => {
+                const li = document.createElement('li');
+                li.innerHTML = `<strong><a href="/tasks/${t.taskId}">${t.taskName}</a></strong>: ${t.summary}`;
+                list.appendChild(li);
+            });
+            summaryDiv.appendChild(list);
+            timeline.appendChild(summaryDiv);
+        }
+
+        // Render Timeline
+        if (events.length === 0 && summaries.length === 0) {
+            document.getElementById('no-schedule').style.display = 'block';
+            return;
+        } else {
+            document.getElementById('no-schedule').style.display = 'none';
+        }
+
+        if (events.length > 0) {
+            const h3 = document.createElement('h3');
+            h3.textContent = 'Timeline';
+            h3.style.marginTop = '1.5rem';
+            timeline.appendChild(h3);
+
+            const timelineList = document.createElement('div');
+            timelineList.className = 'timeline-list';
+
+            // Check for potential conflicts (same minute)
+            let lastTimeStr = "";
+            let groupDiv = null;
+            const now = new Date();
+            const isToday = currentDate.toDateString() === new Date().toDateString();
+            let currentTimeInserted = false;
+
+            events.forEach((e, idx) => {
+                const timeStr = e.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                // Insert current time marker BEFORE the first future event
+                if (isToday && !currentTimeInserted && e.time > now) {
+                    const currentMarker = document.createElement('div');
+                    currentMarker.className = 'current-time-divider';
+                    currentMarker.innerHTML = '<span>NOW</span>';
+                    timelineList.appendChild(currentMarker);
+                    currentTimeInserted = true;
+                }
+
+                if (timeStr !== lastTimeStr) {
+                    // New time slot
+                    const row = document.createElement('div');
+                    row.className = 'timeline-row';
+
+                    // Mark past events with muted class
+                    if (isToday && e.time < now) {
+                        row.classList.add('timeline-past');
+                    }
+
+                    const timeCol = document.createElement('div');
+                    timeCol.className = 'timeline-time';
+                    timeCol.textContent = timeStr;
+
+                    groupDiv = document.createElement('div');
+                    groupDiv.className = 'timeline-excess';
+
+                    row.appendChild(timeCol);
+                    row.appendChild(groupDiv);
+
+                    timelineList.appendChild(row);
+                    lastTimeStr = timeStr;
+                }
+
+                // Add event to current groupDiv
+                const item = document.createElement('div');
+                item.className = 'timeline-item';
+                item.innerHTML = `<a href="/tasks/${e.taskId}">${e.taskName}</a> <span class="badge mini">${e.type}</span>`;
+                groupDiv.appendChild(item);
+            });
+
+            // If viewing today and all events are in the past, add marker at the end
+            if (isToday && !currentTimeInserted) {
+                const currentMarker = document.createElement('div');
+                currentMarker.className = 'current-time-divider';
+                currentMarker.innerHTML = '<span>NOW</span>';
+                timelineList.appendChild(currentMarker);
+            }
+
+            timeline.appendChild(timelineList);
+        }
+    }
+
+    initDate();
+</script>
+
+<style>
+    .form-input {
+        padding: 0.5rem;
+        border: 1px solid var(--input-border);
+        border-radius: 4px;
+        background: var(--input-bg);
+        color: var(--text);
+    }
+
+    .schedule-summary-section {
+        background: var(--bg-body);
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid var(--primary);
+        margin-bottom: 1rem;
+    }
+
+    .summary-list {
+        list-style: none;
+        padding: 0;
+    }
+
+    .summary-list li {
+        padding: 0.5rem 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .summary-list li:last-child {
+        border-bottom: none;
+    }
+
+    .timeline-row {
+        display: flex;
+        align-items: flex-start;
+        margin-bottom: 1rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px dashed var(--border);
+    }
+
+    .timeline-time {
+        font-weight: bold;
+        width: 80px;
+        flex-shrink: 0;
+        color: var(--primary);
+    }
+
+    .timeline-excess {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .timeline-item {
+        background: var(--bg-card);
+        /* Could be slight offset */
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Current time divider - clean horizontal line */
+    .current-time-divider {
+        position: relative;
+        height: 2px;
+        background: #ef4444;
+        margin: 1.5rem 0;
+    }
+
+    .current-time-divider span {
+        position: absolute;
+        left: 0;
+        top: -10px;
+        background: #ef4444;
+        color: white;
+        padding: 0.1rem 0.5rem;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        font-weight: bold;
+    }
+
+    /* Past events styling */
+    .timeline-past {
+        opacity: 0.5;
+    }
+
+    .timeline-past .timeline-time {
+        color: var(--text-muted) !important;
+    }
+
+    .timeline-past .timeline-item {
+        background: var(--light);
+    }
+
+    .badge.mini {
+        font-size: 0.7rem;
+        padding: 0.1rem 0.4rem;
+    }
+</style>
+{% endblock %}
