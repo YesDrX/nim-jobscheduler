@@ -247,11 +247,13 @@ type
     of estTriggerTask:
       triggerTaskId*: int
       triggerTaskTask*: Task
+      triggerTaskManualTriggered*: bool
     of estTriggerJob:
       triggerJobTaskId*: int
       triggerJobTask*: Task
       triggerJobJobId*: int
       triggerJobJob*: Job
+      triggerJobManualTriggered*: bool
     of estCancelExecution:
       cancelExecutionId*: int
 

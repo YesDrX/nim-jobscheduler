@@ -48,9 +48,20 @@ proc reloadSchedulerTasks*(s: Scheduler) =
     s.jobs[job.taskId].add((jobId, job))
     s.jobsToTaskMap[jobId] = job.taskId
 
+proc triggerOnStartTasks*(s: Scheduler) =
+  for (taskId, task) in s.tasks.pairs:
+    if task.enabled and task.scheduleType == stOnStart:
+      info "Triggering task on start: " & task.name
+      s.executorChan[].send(ExecutorSignal(
+        kind: estTriggerTask,
+        triggerTaskId: taskId,
+        triggerTaskTask: task
+      ))
+
 proc startScheduler*(s: Scheduler) =
   s.reloadSchedulerTasks()
   s.refreshSchedule()
+  s.triggerOnStartTasks()
 
   while getIsRunning():
     let referenceNowTime = now().utc

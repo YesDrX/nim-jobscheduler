@@ -7,7 +7,8 @@ proc runLocalCommand*(
     task: Task,
     jobId: int,
     job: Job,
-    nextJobId: int
+    nextJobId: int,
+    manualTriggered: bool = false
 ): tuple[exec: Execution, p: Process] =
     let dt = now().format("yyyyMMdd") & "_" & now().format("HHmmss")
     let logDir = (executor.cfg.workingDir.expandTilde / task.name /
@@ -42,7 +43,8 @@ proc runLocalCommand*(
         startTime: now(),
         status: esRunning,
         logFile: logFile,
-        scriptFilename: scriptPath
+        scriptFilename: scriptPath,
+        manualTriggered: manualTriggered
     )
 
     return (execution, p)
@@ -53,7 +55,8 @@ proc runRemoteCommand*(
     task: Task,
     jobId: int,
     job: Job,
-    nextJobId: int
+    nextJobId: int,
+    manualTriggered: bool = false
 ): tuple[exec: Execution, p: Process] =
     let dt = now().format("yyyyMMdd") & "_" & now().format("HHmmss")
     let logDir = (executor.cfg.workingDir.expandTilde / task.name /
@@ -107,7 +110,8 @@ proc runRemoteCommand*(
         startTime: now(),
         status: esRunning,
         logFile: logFile,
-        scriptFilename: remoteScriptPath
+        scriptFilename: remoteScriptPath,
+        manualTriggered: manualTriggered
     )
 
     return (execution, p)
@@ -182,7 +186,8 @@ proc executeJob*(
     job: Job,
     nextJobId: int,
     nextJob: Job,
-    jobsTuple: seq[tuple[dbId: int, data: Job]]
+    jobsTuple: seq[tuple[dbId: int, data: Job]],
+    manualTriggered: bool = false
 ) =
     info "Executing job " & $jobId & " " & job.name & " for task " & $taskId &
             " " & task.name
@@ -209,7 +214,8 @@ proc executeTask*(
     executor: Executor,
     taskId: int,
     task: Task,
-    jobs: seq[tuple[dbId: int, data: Job]]
+    jobs: seq[tuple[dbId: int, data: Job]],
+    manualTriggered: bool = false
 ) =
     info "Executing task " & $taskId & " " & task.name
     if jobs.len == 0:
@@ -328,13 +334,16 @@ proc runExecutor*(executor: Executor) =
                 of ExecutorSignalType.estTriggerTask:
                     let jobs = db.queryRowsJob("taskId = " &
                             $msg.triggerTaskId & " ORDER BY orderIdx ASC")
-                    executor.executeTask(msg.triggerTaskId, msg.triggerTaskTask, jobs)
+                    executor.executeTask(msg.triggerTaskId, msg.triggerTaskTask,
+                            jobs, msg.triggerTaskManualTriggered)
                 of ExecutorSignalType.estTriggerJob:
                     let jobs = db.queryRowsJob("taskId = " &
                             $msg.triggerJobTaskId & " ORDER BY orderIdx ASC")
                     executor.executeJob(msg.triggerJobTaskId,
                             msg.triggerJobTask, msg.triggerJobJobId,
-                            msg.triggerJobJob, nextJobId = -1, nextJob = Job(), jobs)
+                            msg.triggerJobJob, nextJobId = -1, nextJob = Job(),
+                            jobsTuple = jobs,
+                            manualTriggered = msg.triggerJobManualTriggered)
                 of ExecutorSignalType.estCancelExecution:
                     executor.cancelExecution(msg.cancelExecutionId)
 

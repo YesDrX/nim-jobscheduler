@@ -538,7 +538,8 @@ proc runWebServer*(webServer: WebServer) =
         return
       let (taskId, task) = tasks[0]
       executorChan[].send(ExecutorSignal(kind: estTriggerTask,
-          triggerTaskId: id, triggerTaskTask: task))
+          triggerTaskId: id, triggerTaskTask: task,
+          triggerTaskManualTriggered: true))
       await respJson(req, %*{"status": "ok"})
       return
 
@@ -559,7 +560,8 @@ proc runWebServer*(webServer: WebServer) =
       let (_, task) = tasks[0]
       executorChan[].send(ExecutorSignal(kind: estTriggerJob,
           triggerJobTaskId: taskId, triggerJobTask: task,
-          triggerJobJobId: jobId, triggerJobJob: job))
+          triggerJobJobId: jobId, triggerJobJob: job,
+          triggerJobManualTriggered: true))
       await respJson(req, %*{"status": "ok"})
       return
 
