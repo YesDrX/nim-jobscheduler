@@ -49,7 +49,7 @@ proc loadTasksFromDir*(s: SchedulerMonitor) =
         task.sourceFile = path
         task.folder = path.parentDir
         task.groupName = path.parentDir.absolutePath.replace(
-            s.cfg.tasksDir.absolutePath, "").strip(chars = {'/'})
+            s.cfg.tasksDir.absolutePath, "").strip(chars = {'/', '\\'})
         let resolvedCalendarPath = resolveCalendarPath(task.calendarPath, path)
         if resolvedCalendarPath.len > 0:
           if fileExists(resolvedCalendarPath):

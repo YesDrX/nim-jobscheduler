@@ -102,7 +102,7 @@
         allTasks.forEach((task, idx) => {
             if (searchTerm && !task.name.toLowerCase().includes(searchTerm)) return;
 
-            const tGroup = task.groupName || "";
+            var tGroup = task.groupName || "";
 
             if (currentFolder === "") {
                 if (tGroup === "") {
@@ -110,6 +110,9 @@
                     visibleTaskIdx.push(idx);
                 } else {
                     // Top level folder
+                    if (tGroup.includes("\\")) {
+                        tGroup = tGroup.replace("\\", "/");
+                    }
                     const parts = tGroup.split("/");
                     const topFolder = parts[0];
                     visibleFolders.set(topFolder, (visibleFolders.get(topFolder) || 0) + 1);
