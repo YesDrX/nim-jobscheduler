@@ -205,7 +205,8 @@ proc runDbWorker*(dbWorker: DbWorker) =
 
     of dbCleanupExecutions:
       let refTime = (now() - 7.days).toTime().toUnix()
-      db.exec(sql"DELETE FROM ExecutionTable WHERE _dbTimestamp < ?", refTime)
+      db.exec(sql"DELETE FROM ExecutionTable WHERE _dbTimestamp < ? AND status != ?",
+          refTime, serialize("Running"))
 
   info "Stopping db worker"
 
