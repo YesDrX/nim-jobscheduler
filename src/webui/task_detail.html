@@ -138,11 +138,6 @@
             return;
         }
 
-        // Load history for chart
-        if (jobs.length > 0) {
-            renderChart();
-        }
-
         const tbody = document.getElementById('jobs-body');
         if (jobs.length === 0) {
             tbody.innerHTML = '<tr><td colspan="3" class="no-data">No jobs found</td></tr>';
@@ -160,8 +155,12 @@
                 <button onclick="triggerJob(${jobIds[idx]})" class="btn btn-sm">Run Now</button>
             </td>
         </tr>
-    `).join('');
+        `).join('');
 
+        // Load history for chart
+        if (jobs.length > 0) {
+            renderChart();
+        }
     }
 
     function renderChart() {
