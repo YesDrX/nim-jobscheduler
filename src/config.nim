@@ -34,6 +34,7 @@ type
   Config* = object
     tasksDir*: string
     workingDir*: string
+    logLevel*: LogLevel
     database*: DatabaseConfig
     server*: ServerConfig
     smtp*: SmtpConfig

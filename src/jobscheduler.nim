@@ -21,6 +21,7 @@ proc start(config = DefaultConfigPath) =
     fatal "Config file not found: " & config
 
   let cfg = loadConfig(config)
+  setLogLevel(cfg.logLevel)
 
   # 2. Channels
   var
