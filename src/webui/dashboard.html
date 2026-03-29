@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+
+
+{% block title %}Dashboard - Job Scheduler{% endblock %}
+
+{% block content %}
+<div class="dashboard-header">
+    <h2>Dashboard</h2>
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value" id="total-executions">-</div>
+            <div class="stat-label">Total Executions</div>
+        </div>
+        <div class="stat-card success">
+            <div class="stat-value" id="successful">-</div>
+            <div class="stat-label">Successful</div>
+        </div>
+        <div class="stat-card running">
+            <div class="stat-value" id="running">-</div>
+            <div class="stat-label">Running</div>
+        </div>
+        <div class="stat-card failed">
+            <div class="stat-value" id="failed">-</div>
+            <div class="stat-label">Failed</div>
+        </div>
+    </div>
+</div>
+
+<div class="section" id="running-section" style="display:none">
+    <h3>Currently Running</h3>
+    <div class="table-container">
+        <table id="running-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Task</th>
+                    <th>Job</th>
+                    <th>Started</th>
+                    <th>Duration</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="running-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="section">
+    <h3>Recent Executions</h3>
+    <div class="table-container">
+        <table id="executions-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Task</th>
+                    <th>Job</th>
+                    <th>Status</th>
+                    <th>Start Time</th>
+                    <th>End Time</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="executions-body">
+                <tr>
+                    <td colspan="7" class="loading">Loading...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="pagination" class="pagination"
+        style="margin-top: 1rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem;"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let executionIds = {{ executionIdsJson }};
+    let executions = {{ executionsJson }}.map((execution, idx) => {
+        return {
+            executionId: executionIds[idx],
+            ...execution
+        };
+    });
+
+    const PAGE_LIMIT = 50;
+    let paginationInfo = {
+        page: 1, total: executions.length, limit: PAGE_LIMIT, totalPages: Math.ceil(executions.length / PAGE_LIMIT)
+    };
+    let runningExecutions = executions.filter(execution => execution.status == 'Running')
+    async function cancelJob(execId) {
+        if (!confirm('Are you sure you want to cancel this job?')) return;
+        try {
+            await fetch(`/api/cancel_execution?id=${execId}`, { method: 'POST' });
+            loadDashboard();
+        } catch (e) { console.error(e); alert('Failed to cancel job'); }
+    }
+
+    async function deleteExecution(execId) {
+        if (!confirm('Are you sure you want to delete this execution and its logs?')) return;
+
+        try {
+            const response = await fetch(`/api/delete_execution?id=${execId}`, {
+                method: 'POST'
+            });
+
+            if (response.ok) {
+                loadDashboard(paginationInfo.page);
+            } else {
+                alert('Failed to delete execution');
+            }
+        } catch (error) {
+            console.error('Error deleting execution:', error);
+            alert('Error deleting execution');
+        }
+    }
+
+    async function loadDashboard(page = 1) {
+        paginationInfo.page = page;
+        try {
+            // Fetch stats separately to get Today's stats
+            const statsReq = await fetch("/api/stats");
+
+            // Update Stats Cards
+            if (statsReq.ok) {
+                const stats = await statsReq.json();
+                document.getElementById('total-executions').textContent = stats.total;
+                document.getElementById('successful').textContent = stats.success;
+                document.getElementById('running').textContent = stats.running;
+                document.getElementById('failed').textContent = stats.failed;
+            }
+
+            const runningSection = document.getElementById('running-section');
+            const runningBody = document.getElementById('running-body');
+
+            if (runningExecutions.length > 0) {
+                runningSection.style.display = 'block';
+                runningBody.innerHTML = runningExecutions.map(exec => `
+                <tr>
+                    <td>${exec.executionId}</td>
+                    <td><a href="/task_detail?id=${exec.taskId}">${exec.taskName}</a></td>
+                    <td>${exec.jobName}</td>
+                    <td>${formatTime(exec.startTime)}</td>
+                    <td>${calculateDuration(exec.startTime)}</td>
+                    <td>
+                        <a href="/execution_log?id=${exec.executionId}" class="btn btn-sm">View Log</a>
+                        <button onclick="cancelJob(${exec.executionId})" class="btn btn-sm btn-danger">Cancel</button>
+                    </td>
+                </tr>
+            `).join('');
+            } else {
+                runningSection.style.display = 'none';
+            }
+
+            // Update table
+            const tbody = document.getElementById('executions-body');
+            if (executions.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="no-data">No executions found</td></tr>';
+                return;
+            }
+
+            // Slice to current page
+            const start = (paginationInfo.page - 1) * paginationInfo.limit;
+            const pageItems = executions.slice(start, start + paginationInfo.limit);
+
+            tbody.innerHTML = pageItems.map(exec => `
+            <tr>
+                <td>${exec.executionId}</td>
+                <td><a href="/task_detail?id=${exec.taskId}">${exec.taskName}</a></td>
+                <td>${exec.jobName}</td>
+                <td>${formatStatus(exec.status)}</td>
+                <td>${formatTime(exec.startTime)}</td>
+                <td>${formatTime(exec.endTime)}</td>
+                <td>
+                    <a href="/execution_log?id=${exec.executionId}" class="btn btn-sm">View Log</a>
+                    <button onclick="deleteExecution(${exec.executionId})" class="btn btn-sm btn-danger">Delete</button>
+                </td>
+            </tr>
+        `).join('');
+
+            updatePagination();
+
+        } catch (error) {
+            console.error('Error loading dashboard:', error);
+            document.getElementById('executions-body').innerHTML =
+                '<tr><td colspan="7" class="error">Error loading data</td></tr>';
+        }
+    }
+
+    function updatePagination() {
+        const paginationEl = document.getElementById('pagination');
+        if (!paginationInfo || paginationInfo.totalPages <= 1) {
+            paginationEl.style.display = 'none';
+            return;
+        }
+
+        paginationEl.style.display = 'flex';
+        const page = paginationInfo.page;
+        const totalPages = paginationInfo.totalPages;
+        const total = paginationInfo.total;
+
+        let html = `<span style="margin-right: 1rem;">Showing ${(page - 1) * paginationInfo.limit + 1}-${Math.min(page * paginationInfo.limit, total)} of ${total}</span>`;
+
+        if (page > 1) {
+            html += `<button class="btn btn-sm" onclick="loadDashboard(${page - 1})">Previous</button>`;
+        }
+
+        // Show page numbers
+        let startPage = Math.max(1, page - 2);
+        let endPage = Math.min(totalPages, page + 2);
+
+        if (startPage > 1) {
+            html += `<button class="btn btn-sm" onclick="loadDashboard(1)">1</button>`;
+            if (startPage > 2) html += `<span>...</span>`;
+        }
+
+        for (let p = startPage; p <= endPage; p++) {
+            if (p === page) {
+                html += `<button class="btn btn-sm" style="background: var(--primary); opacity: 0.8;" disabled>${p}</button>`;
+            } else {
+                html += `<button class="btn btn-sm" onclick="loadDashboard(${p})">${p}</button>`;
+            }
+        }
+
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) html += `<span>...</span>`;
+            html += `<button class="btn btn-sm" onclick="loadDashboard(${totalPages})">${totalPages}</button>`;
+        }
+
+        if (page < totalPages) {
+            html += `<button class="btn btn-sm" onclick="loadDashboard(${page + 1})">Next</button>`;
+        }
+
+        paginationEl.innerHTML = html;
+    }
+
+    loadDashboard();
+    // Note: Auto-refresh disabled with pagination - user can manually refresh if needed
+</script>
+{% endblock %}

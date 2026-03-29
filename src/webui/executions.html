@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+
+{% block title %}Executions - Job Scheduler{% endblock %}
+
+{% block content %}
+<div class="dashboard-header">
+    <h2>Execution History</h2>
+</div>
+
+<div class="section">
+    <div class="search-container"
+        style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+        <input type="text" id="job-search" placeholder="Search by job name..." value="{{ search }}"
+            style="flex: 1; min-width: 200px; max-width: 400px; padding: 0.5rem; border: 1px solid var(--input-border); border-radius: 4px; font-size: 1rem;">
+        <select id="status-filter"
+            style="padding: 0.5rem; border: 1px solid var(--input-border); border-radius: 4px; font-size: 1rem; background: var(--input-bg); color: var(--text);">
+            <option value="" {% if statusFilter=="" %}selected{% endif %}>All Statuses</option>
+            <option value="Success" {% if statusFilter=="Success" %}selected{% endif %}>Success</option>
+            <option value="Failed" {% if statusFilter=="Failed" %}selected{% endif %}>Failed</option>
+            <option value="Running" {% if statusFilter=="Running" %}selected{% endif %}>Running</option>
+            <option value="Scheduled" {% if statusFilter=="Scheduled" %}selected{% endif %}>Scheduled</option>
+        </select>
+    </div>
+    <div class="table-container">
+        <table id="executions-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>PID</th>
+                    <th>Task</th>
+                    <th>Job</th>
+                    <th>Status</th>
+                    <th>Start Time</th>
+                    <th>End Time</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="executions-body">
+                <tr>
+                    <td colspan="7" class="loading">Loading...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div id="pagination" class="pagination" data-total="{{ totalExecutions }}"
+        style="margin-top: 1rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem;"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const PAGE_LIMIT = {{ limit }};
+    let allExecutions = {{ allExecutionsJson }}.map((exec, idx) => ({
+        ...exec,
+        executionId: {{ executionIdsJson }}[idx]
+    }));
+
+    // filteredExecutions starts as a copy of all; updated on every filter/search change
+    let filteredExecutions = allExecutions.slice();
+    let currentPage = 1;
+
+    async function deleteExecution(execId) {
+        showConfirmModal('Delete Execution', 'Are you sure you want to delete this execution and its logs?', async () => {
+            try {
+                const response = await fetch(`/api/delete_execution?id=${execId}`, { method: 'POST' });
+                if (response.ok) { location.reload(); }
+                else { alert('Failed to delete execution'); }
+            } catch (error) { alert('Error deleting execution'); }
+        });
+    }
+
+    async function cancelExecution(execId) {
+        showConfirmModal('Cancel Execution', 'Are you sure you want to cancel this running execution?', async () => {
+            try {
+                const response = await fetch(`/api/cancel_execution?id=${execId}`, { method: 'POST' });
+                if (response.ok) { location.reload(); }
+                else { alert('Failed to cancel execution'); }
+            } catch (error) { alert('Error cancelling execution'); }
+        });
+    }
+
+    function applyFilter() {
+        const searchTerm = document.getElementById('job-search').value.toLowerCase();
+        const statusFilter = document.getElementById('status-filter').value;
+
+        filteredExecutions = allExecutions.filter(exec => {
+            const matchesJobName = exec.jobName.toLowerCase().includes(searchTerm) || exec.taskName.toLowerCase().includes(searchTerm);
+            const matchesStatus = !statusFilter || exec.status === statusFilter;
+            return matchesJobName && matchesStatus;
+        });
+
+        currentPage = 1;
+        renderTable();
+        updatePagination();
+    }
+
+    function renderTable() {
+        const tbody = document.getElementById('executions-body');
+        if (filteredExecutions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="no-data">No executions found</td></tr>';
+            return;
+        }
+        const start = (currentPage - 1) * PAGE_LIMIT;
+        const pageItems = filteredExecutions.slice(start, start + PAGE_LIMIT);
+        tbody.innerHTML = pageItems.map(exec => `
+            <tr>
+                <td>${exec.executionId}</td>
+                <td>${exec.pid}</td>
+                <td><a href="/task_detail?id=${exec.taskId}">${exec.taskName}</a></td>
+                <td>${exec.jobName}</td>
+                <td>${formatStatus(exec.status)}</td>
+                <td>${formatTime(exec.startTime)}</td>
+                <td>${formatTime(exec.endTime)}</td>
+                <td>
+                    <a href="/execution_log?id=${exec.executionId}" class="btn btn-sm">View Log</a>
+                    ${exec.status === 'Running' ? `<button onclick="cancelExecution(${exec.executionId})" class="btn btn-sm btn-danger">Cancel</button>` : ''}
+                    <button onclick="deleteExecution(${exec.executionId})" class="btn btn-sm btn-danger">Delete</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function goToPage(page) {
+        currentPage = page;
+        renderTable();
+        updatePagination();
+    }
+
+    function updatePagination() {
+        const paginationEl = document.getElementById('pagination');
+        const total = filteredExecutions.length;
+        const totalPages = Math.ceil(total / PAGE_LIMIT);
+
+        if (totalPages <= 1) { paginationEl.style.display = 'none'; return; }
+
+        paginationEl.style.display = 'flex';
+        const page = currentPage;
+        let html = `<span style="margin-right: 1rem;">Showing ${(page - 1) * PAGE_LIMIT + 1}-${Math.min(page * PAGE_LIMIT, total)} of ${total}</span>`;
+
+        if (page > 1) html += `<button class="btn btn-sm" onclick="goToPage(${page - 1})">Previous</button>`;
+
+        let startPage = Math.max(1, page - 2);
+        let endPage = Math.min(totalPages, page + 2);
+        if (startPage > 1) { html += `<button class="btn btn-sm" onclick="goToPage(1)">1</button>`; if (startPage > 2) html += `<span>...</span>`; }
+        for (let p = startPage; p <= endPage; p++) {
+            if (p === page) html += `<button class="btn btn-sm" style="background: var(--primary); opacity: 0.8;" disabled>${p}</button>`;
+            else html += `<button class="btn btn-sm" onclick="goToPage(${p})">${p}</button>`;
+        }
+        if (endPage < totalPages) { if (endPage < totalPages - 1) html += `<span>...</span>`; html += `<button class="btn btn-sm" onclick="goToPage(${totalPages})">${totalPages}</button>`; }
+        if (page < totalPages) html += `<button class="btn btn-sm" onclick="goToPage(${page + 1})">Next</button>`;
+
+        paginationEl.innerHTML = html;
+    }
+
+    document.getElementById('job-search').addEventListener('input', applyFilter);
+    document.getElementById('status-filter').addEventListener('change', applyFilter);
+
+    // Initial render
+    renderTable();
+    updatePagination();
+</script>
+{% endblock %}

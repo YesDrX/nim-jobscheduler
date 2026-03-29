@@ -1,0 +1,642 @@
+{% extends "base.html" %}
+
+
+{% block title %}API Tokens - Job Scheduler{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>API Tokens</h2>
+    <button onclick="showCreateToken()" class="btn">+ New Token</button>
+</div>
+
+<div id="create-token-modal" class="modal" style="display:none">
+    <div class="modal-content">
+        <h3>Create New API Token</h3>
+        <form id="create-token-form">
+            <div class="form-group">
+                <label>Token Name</label>
+                <input type="text" id="token-name" required placeholder="e.g., CI/CD Pipeline">
+            </div>
+            <div class="form-group">
+                <label>Expires In</label>
+                <select id="token-expiry">
+                    <option value="30">30 days</option>
+                    <option value="90">90 days</option>
+                    <option value="365">1 year</option>
+                    <option value="0">Never</option>
+                </select>
+            </div>
+            <div class="btn-group">
+                <button type="submit" class="btn">Create</button>
+                <button type="button" onclick="hideTokenModal()" class="btn btn-secondary">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="show-token-modal" class="modal" style="display:none">
+    <div class="modal-content">
+        <h3>New Token Created</h3>
+        <p><strong>Save this token now - it won't be shown again!</strong></p>
+        <div class="token-display">
+            <code id="new-token-value"></code>
+            <button onclick="copyToken()" class="btn btn-sm">Copy</button>
+        </div>
+        <button onclick="hideShowTokenModal()" class="btn">Close</button>
+    </div>
+</div>
+
+<div class="section">
+    <div class="table-container">
+        <table id="tokens-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Token</th>
+                    <th>Created</th>
+                    <th>Expires</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="tokens-body">
+                <tr>
+                    <td colspan="5" class="loading">Loading...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="separator"></div>
+
+<div class="section">
+    <h3>API Documentation</h3>
+    <div class="api-auth-info">
+        <p>Authenticate requests using the header: <code
+                class="auth-header">Authorization: Bearer &lt;your_token&gt;</code></p>
+    </div>
+
+    <div class="api-docs">
+        <!-- GET /isHealthy -->
+        <div class="api-endpoint">
+            <div class="api-header get" onclick="toggleApi(this)">
+                <span class="method">GET</span>
+                <span class="path">/isHealthy</span>
+                <span class="summary">Health Check</span>
+            </div>
+            <div class="api-details">
+                <p>Public endpoint to check server status. No auth required.</p>
+                <p>Returns <code>{"status": "ok", "timestamp": "..."}</code></p>
+            </div>
+        </div>
+
+        <!-- GET /api/publicKey -->
+        <div class="api-endpoint">
+            <div class="api-header get" onclick="toggleApi(this)">
+                <span class="method">GET</span>
+                <span class="path">/api/publicKey</span>
+                <span class="summary">Get Public Key</span>
+            </div>
+            <div class="api-details">
+                <p>Retrieve the public key to encrypt passwords.</p>
+                <p>Returns: <code>{"publicKey": "..."}</code></p>
+            </div>
+        </div>
+
+        <!-- POST /api/login -->
+        <div class="api-endpoint">
+            <div class="api-header post" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/login</span>
+                <span class="summary">User Login</span>
+            </div>
+            <div class="api-details">
+                <p>Authenticate with username and password.</p>
+                <h4>JSON Body</h4>
+                <pre>{
+  "username": "admin",
+  "password": "password"
+}</pre>
+                <p>Returns: <code>{"status": "ok", "token": "...", "userId": 1}</code></p>
+            </div>
+        </div>
+
+        <!-- GET /api/stats -->
+        <div class="api-endpoint">
+            <div class="api-header get" onclick="toggleApi(this)">
+                <span class="method">GET</span>
+                <span class="path">/api/stats</span>
+                <span class="summary">System Statistics</span>
+            </div>
+            <div class="api-details">
+                <p>Get overall system execution stats.</p>
+                <p>Returns: <code>{"tasks": 10, "total": 100, "running": 1, "success": 90, "failed": 9}</code></p>
+            </div>
+        </div>
+
+        <!-- POST /api/save_task -->
+        <div class="api-endpoint">
+            <div class="api-header post" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/save_task</span>
+                <span class="summary">Create or Update Task</span>
+            </div>
+            <div class="api-details">
+                <p>Create a new task or update an existing one.</p>
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>id</code> (int): Task ID. Use <code>-1</code> or omit for a new task.</li>
+                </ul>
+                <h4>JSON Body</h4>
+                <p>JSON serialized <code>Task</code> object.</p>
+            </div>
+        </div>
+
+        <!-- POST /api/toggle_task -->
+        <div class="api-endpoint">
+            <div class="api-header post" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/toggle_task</span>
+                <span class="summary">Toggle Task Enabled/Disabled</span>
+            </div>
+            <div class="api-details">
+                <p>Enable or disable a specific task.</p>
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>id</code> (int): Task ID</li>
+                    <li><code>enabled</code> (bool): <code>true</code> or <code>false</code></li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- POST /api/trigger_task -->
+        <div class="api-endpoint">
+            <div class="api-header post" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/trigger_task</span>
+                <span class="summary">Trigger a Task</span>
+            </div>
+            <div class="api-details">
+                <p>Manually trigger a full task execution immediately.</p>
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>id</code> (int): Task ID</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- POST /api/delete_task -->
+        <div class="api-endpoint">
+            <div class="api-header delete" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/delete_task</span>
+                <span class="summary">Delete a Task</span>
+            </div>
+            <div class="api-details">
+                <p>Permanently delete a task from the system.</p>
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>id</code> (int): Task ID</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- POST /api/trigger_job -->
+        <div class="api-endpoint">
+            <div class="api-header post" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/trigger_job</span>
+                <span class="summary">Trigger a Job</span>
+            </div>
+            <div class="api-details">
+                <p>Manually trigger a single specific job.</p>
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>id</code> (int): Job ID</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- POST /api/execution_log -->
+        <div class="api-endpoint">
+            <div class="api-header post" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/execution_log</span>
+                <span class="summary">Get Execution Log Details</span>
+            </div>
+            <div class="api-details">
+                <p>Retrieve the text log output of an execution.</p>
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>id</code> (int): Execution ID</li>
+                </ul>
+                <p>Returns: <code>{"content": "log text"}</code></p>
+            </div>
+        </div>
+
+        <!-- GET /api/download_log -->
+        <div class="api-endpoint">
+            <div class="api-header get" onclick="toggleApi(this)">
+                <span class="method">GET</span>
+                <span class="path">/api/download_log</span>
+                <span class="summary">Download Execution Log</span>
+            </div>
+            <div class="api-details">
+                <p>Download the execution log file as an attachment.</p>
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>id</code> (int): Execution ID</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- POST /api/cancel_execution -->
+        <div class="api-endpoint">
+            <div class="api-header post" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/cancel_execution</span>
+                <span class="summary">Cancel an Execution</span>
+            </div>
+            <div class="api-details">
+                <p>Attempt to kill a running execution process (sending SIGTERM/SIGKILL).</p>
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>id</code> (int): Execution ID</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- POST /api/delete_execution -->
+        <div class="api-endpoint">
+            <div class="api-header delete" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/delete_execution</span>
+                <span class="summary">Delete an Execution Record</span>
+            </div>
+            <div class="api-details">
+                <p>Cancel an execution if running, then delete the record and its log file.</p>
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>id</code> (int): Execution ID</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- POST /api/create_user -->
+        <div class="api-endpoint">
+            <div class="api-header post" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/create_user</span>
+                <span class="summary">Create User</span>
+            </div>
+            <div class="api-details">
+                <p>Create a new user in the system.</p>
+                <h4>JSON Body</h4>
+                <p>JSON serialized <code>User</code> object including <code>password</code> (plain text, will be hashed server-side).</p>
+            </div>
+        </div>
+
+        <!-- POST /api/update_user_password -->
+        <div class="api-endpoint">
+            <div class="api-header post" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/update_user_password</span>
+                <span class="summary">Update User Password</span>
+            </div>
+            <div class="api-details">
+                <p>Update a user's password.</p>
+                <h4>JSON Body</h4>
+                <pre>{
+  "userId": 1,
+  "password": "new_password"
+}</pre>
+            </div>
+        </div>
+
+        <!-- POST /api/delete_user -->
+        <div class="api-endpoint">
+            <div class="api-header delete" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/delete_user</span>
+                <span class="summary">Delete User</span>
+            </div>
+            <div class="api-details">
+                <p>Delete a user from the system.</p>
+                <h4>JSON Body</h4>
+                <pre>{
+  "userId": 1
+}</pre>
+            </div>
+        </div>
+
+        <!-- POST /api/create_token -->
+        <div class="api-endpoint">
+            <div class="api-header post" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/create_token</span>
+                <span class="summary">Create API Token</span>
+            </div>
+            <div class="api-details">
+                <p>Create a new API token for the current user.</p>
+                <h4>JSON Body</h4>
+                <pre>{
+  "name": "My Token",
+  "expiresAt": 1700000000000
+}</pre>
+                <p><code>expiresAt</code> is optional and specified in milliseconds since epoch.</p>
+                <p>Returns: <code>{"status": "ok", "token": "..."}</code></p>
+            </div>
+        </div>
+
+        <!-- POST /api/delete_token -->
+        <div class="api-endpoint">
+            <div class="api-header delete" onclick="toggleApi(this)">
+                <span class="method">POST</span>
+                <span class="path">/api/delete_token</span>
+                <span class="summary">Delete API Token</span>
+            </div>
+            <div class="api-details">
+                <p>Revoke and delete an API token.</p>
+                <h4>JSON Body</h4>
+                <pre>{
+  "tokenId": 123
+}</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const tokens = {{ tokensJson }};
+    const tokenIds = {{ tokenIdsJson }};
+
+    async function loadTokens() {
+        const tbody = document.getElementById('tokens-body');
+        if (tokens.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="no-data">No tokens found</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = tokens.map((token, idx) => `
+        <tr>
+            <td>${token.name}</td>
+            <td><code>${token.token.slice(0, 10)}***</code></td>
+            <td>${formatTime(token.createdAt)}</td>
+            <td>${token.expiresAt ? formatTime(token.expiresAt) : 'Never'}</td>
+            <td>
+                <button onclick="revokeToken(${tokenIds[idx]})" class="btn btn-sm btn-danger">Revoke</button>
+            </td>
+        </tr>
+    `).join('');
+    }
+
+    function showCreateToken() {
+        document.getElementById('create-token-modal').style.display = 'flex';
+    }
+
+    function hideTokenModal() {
+        document.getElementById('create-token-modal').style.display = 'none';
+    }
+
+    function hideShowTokenModal() {
+        document.getElementById('show-token-modal').style.display = 'none';
+    }
+
+    function copyToken() {
+        const token = document.getElementById('new-token-value').textContent;
+        navigator.clipboard.writeText(token);
+        alert('Token copied to clipboard!');
+    }
+
+    document.getElementById('create-token-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        try {
+            const expiryDays = parseInt(document.getElementById('token-expiry').value);
+            let expiresAt = null;
+
+            if (expiryDays > 0) {
+                const expiryDate = new Date();
+                expiryDate.setDate(expiryDate.getDate() + expiryDays);
+                // Format as ISO string in format: yyyy-MM-ddTHH:mm:ss
+                expiresAt = expiryDate.toISOString().split('.')[0]; // Remove milliseconds and timezone
+            } else {
+                // Never expires - send date far in future (100 years)
+                const farFuture = new Date();
+                farFuture.setFullYear(farFuture.getFullYear() + 100);
+                expiresAt = farFuture.toISOString().split('.')[0];
+            }
+
+            const response = await fetch('/api/create_token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: document.getElementById('token-name').value,
+                    expiresAt: (new Date(expiresAt)).getTime()
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                document.getElementById('new-token-value').textContent = data.token;
+                hideTokenModal();
+                document.getElementById('show-token-modal').style.display = 'flex';
+                loadTokens();
+            } else {
+                alert('Failed to create token');
+            }
+        } catch (error) {
+            alert('Error: ' + error);
+        }
+    });
+
+    async function revokeToken(tokenId) {
+        showConfirmModal('Revoke Token', 'Revoke this token? This cannot be undone.', async () => {
+            try {
+                const response = await fetch(`/api/delete_token`, { method: 'POST', body: JSON.stringify({ tokenId: tokenId }) });
+                if (response.ok) {
+                    loadTokens();
+                } else {
+                    alert('Failed to revoke token');
+                }
+            } catch (error) {
+                alert('Error: ' + error);
+            }
+        });
+    }
+
+    function toggleApi(header) {
+        const details = header.nextElementSibling;
+        if (details.style.display === 'block') {
+            details.style.display = 'none';
+        } else {
+            details.style.display = 'block';
+        }
+    }
+
+    loadTokens();
+</script>
+
+<style>
+    .token-display {
+        background: var(--light);
+        padding: 1rem;
+        border-radius: 4px;
+        margin: 1rem 0;
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+    }
+
+    .token-display code {
+        flex: 1;
+        word-break: break-all;
+        font-size: 0.875rem;
+    }
+
+    select {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid var(--input-border);
+        border-radius: 4px;
+        background: var(--input-bg);
+        color: var(--text);
+    }
+
+    /* API Docs Styles */
+    .separator {
+        height: 1px;
+        background: var(--border);
+        margin: 2rem 0;
+    }
+
+    .api-auth-info {
+        background: var(--bg-card);
+        padding: 1rem;
+        border-radius: 4px;
+        margin-bottom: 2rem;
+        border: 1px solid var(--border);
+    }
+
+    .auth-header {
+        background: #333;
+        color: #0f0;
+        padding: 0.2rem 0.5rem;
+        border-radius: 3px;
+        font-family: monospace;
+    }
+
+    .api-endpoint {
+        margin-bottom: 1rem;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .api-header {
+        display: flex;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        cursor: pointer;
+        background: var(--bg-card);
+        transition: background 0.2s;
+        user-select: none;
+    }
+
+    .api-header:hover {
+        filter: brightness(0.95);
+    }
+
+    .api-header .method {
+        font-weight: bold;
+        min-width: 60px;
+        padding: 0.25rem 0.6rem;
+        border-radius: 3px;
+        color: white;
+        text-align: center;
+        font-size: 0.85rem;
+        margin-right: 1rem;
+    }
+
+    .api-header.get .method {
+        background: #61affe;
+    }
+
+    .api-header.post .method {
+        background: #49cc90;
+    }
+
+    .api-header.put .method {
+        background: #fca130;
+    }
+
+    .api-header.delete .method {
+        background: #f93e3e;
+    }
+
+    /* Border colors matching methods */
+    .api-header.get {
+        border-left: 5px solid #61affe;
+    }
+
+    .api-header.post {
+        border-left: 5px solid #49cc90;
+    }
+
+    .api-header.put {
+        border-left: 5px solid #fca130;
+    }
+
+    .api-header.delete {
+        border-left: 5px solid #f93e3e;
+    }
+
+    .api-header .path {
+        font-family: monospace;
+        font-size: 1rem;
+        font-weight: 600;
+        margin-right: 1rem;
+        color: var(--text);
+    }
+
+    .api-header .summary {
+        color: var(--text-muted);
+        font-size: 0.9rem;
+        flex: 1;
+    }
+
+    .api-details {
+        display: none;
+        padding: 1rem;
+        background: var(--bg-body);
+        /* Slightly darker/different from card */
+        border-top: 1px solid var(--border);
+    }
+
+    .api-details h4 {
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+        font-size: 0.95rem;
+        color: var(--text);
+    }
+
+    .api-details pre {
+        background: #1e1e1e;
+        color: #d4d4d4;
+        padding: 1rem;
+        border-radius: 4px;
+        overflow-x: auto;
+        font-size: 0.85rem;
+    }
+
+    .api-details ul {
+        margin: 0;
+        padding-left: 1.5rem;
+        color: var(--text-muted);
+    }
+</style>
+{% endblock %}

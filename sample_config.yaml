@@ -1,0 +1,31 @@
+tasksDir: "./tasks"
+workingDir: "~/.jobscheduler/"
+
+database:
+  path: "jobscheduler.db"
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  sslCert: ""
+  sslKey: ""
+  externalHost: "https://www.jobscheduler.com"
+
+smtp:
+  enabled: true
+  host: "smtp.gmail.com"
+  port: 465
+  useSSL: true
+  password: abcdefg
+  fromAddr: abcdefg.abcdefg@gmail.com
+  toAddrs: ["abcdefg.abcdefg@gmail.com"]
+
+ssh:
+  defaultKeyPath: "~/.ssh/id_rsa"
+
+internal:
+  logRetentionDays: 30
+
+auth:
+  username: "scheduler"
+  password: "password"

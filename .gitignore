@@ -1,0 +1,12 @@
+jobscheduler.db
+jobscheduler.db-shm
+jobscheduler.db-wal
+jobscheduler
+logs
+logs/*
+tasks
+tasks/*
+.vscode
+.vscode/*
+config.yaml
+architecture.md

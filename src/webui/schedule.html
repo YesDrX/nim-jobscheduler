@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+
+{% block title %}Daily Schedule - Job Scheduler{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Daily Schedule</h2>
+</div>
+
+<div class="section">
+    <div id="loading" class="loading">Loading schedule...</div>
+    <div id="schedule-container" style="display: none;">
+        <div id="timeline"></div>
+        <div id="no-schedule" class="no-data" style="display: none;">No tasks scheduled for this day</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const scheduleData = {{ scheduleJson }};
+    const tasksData = {{ tasksJson }};
+    const taskIds = {{ taskIdsJson }};
+
+    const tasks = tasksData.map((item, index) => {
+        return {
+            id: taskIds[index],
+            ...item
+        };
+    });
+
+    const shortIntervalTasks = tasks.filter(t => t.scheduleType === 'interval' && t.intervalMinutes <= 60);
+
+
+    function loadSchedule() {
+        const container = document.getElementById('schedule-container');
+        const timeline = document.getElementById('timeline');
+        const noSchedule = document.getElementById('no-schedule');
+        const loading = document.getElementById('loading');
+
+        loading.style.display = 'none';
+        container.style.display = 'block';
+        timeline.innerHTML = '';
+
+        if (shortIntervalTasks.length > 0) {
+            const summaryHtml = shortIntervalTasks.map(t => {
+                return `<li><strong><a href="/task_detail?id=${t.id}" style="color:inherit; text-decoration:none;">${t.name}</a></strong> - Every ${t.intervalMinutes} min (${t.intervalStart} to ${t.intervalEnd})</li>`;
+            }).join('');
+
+            timeline.innerHTML += `
+                <div class="schedule-summary-section">
+                    <h4 style="margin-top: 0; margin-bottom: 0.5rem;">Frequent Tasks</h4>
+                    <ul class="summary-list">
+                        ${summaryHtml}
+                    </ul>
+                </div>
+            `;
+        }
+
+        if (scheduleData.length === 0) {
+            noSchedule.style.display = 'block';
+            return;
+        } else {
+            noSchedule.style.display = 'none';
+        }
+
+        scheduleData.sort((a, b) => parseTime(a.triggerTime) - parseTime(b.triggerTime));
+
+        const now = new Date();
+        let dividerInserted = false;
+
+        scheduleData.forEach(item => {
+            const itemTime = parseTime(item.triggerTime);
+            const isPast = itemTime < now;
+
+            if (!isPast && !dividerInserted) {
+                timeline.innerHTML += `
+                    <div class="current-time-divider">
+                        <span>Current Time</span>
+                    </div>
+                `;
+                dividerInserted = true;
+            }
+
+            const timeStr = itemTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            timeline.innerHTML += `
+                <div class="timeline-row ${isPast ? 'timeline-past' : ''}">
+                    <div class="timeline-time">${timeStr}</div>
+                    <div class="timeline-excess">
+                        <div class="timeline-item">
+                            <span class="task-name"><a href="/task_detail?id=${item.taskId}" style="color:inherit; text-decoration:none;">${item.taskName}</a></span>
+                            <a href="/task_detail?id=${item.taskId}" class="badge mini" style="margin-left:auto; text-decoration:none; color:inherit; border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px;">View</a>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        if (!dividerInserted) {
+            timeline.innerHTML += `
+                <div class="current-time-divider">
+                    <span>Current Time</span>
+                </div>
+            `;
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        loadSchedule();
+    });
+</script>
+
+<style>
+    .schedule-summary-section {
+        background: var(--bg-body);
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid var(--primary);
+        margin-bottom: 1rem;
+    }
+
+    .summary-list {
+        list-style: none;
+        padding: 0;
+    }
+
+    .summary-list li {
+        padding: 0.5rem 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .summary-list li:last-child {
+        border-bottom: none;
+    }
+
+    .timeline-row {
+        display: flex;
+        align-items: flex-start;
+        margin-bottom: 1rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px dashed var(--border);
+    }
+
+    .timeline-time {
+        font-weight: bold;
+        width: 80px;
+        flex-shrink: 0;
+        color: var(--primary);
+    }
+
+    .timeline-excess {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .timeline-item {
+        background: var(--bg-card);
+        /* Could be slight offset */
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Current time divider - clean horizontal line */
+    /* Current time divider - clean horizontal line */
+    .current-time-divider {
+        position: relative;
+        height: 4px;
+        background: var(--danger);
+        margin: 1.5rem 0;
+        border-radius: 2px;
+        box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+        z-index: 10;
+    }
+
+    .current-time-divider span {
+        position: absolute;
+        right: 0;
+        top: -12px;
+        background: var(--danger);
+        color: white;
+        padding: 0.2rem 0.6rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Past events styling */
+    /* Past events styling */
+    .timeline-past {
+        opacity: 0.6;
+        filter: grayscale(0.5);
+    }
+
+    .timeline-past .timeline-time {
+        color: var(--text-muted) !important;
+        font-weight: normal;
+    }
+
+    .timeline-past .timeline-item {
+        background: var(--bg);
+        /* Use main bg instead of card bg for 'lighter' look (in light mode at least) */
+        border-color: transparent;
+        box-shadow: none;
+    }
+
+    [data-theme="dark"] .timeline-past .timeline-item {
+        background: rgba(255, 255, 255, 0.03);
+        /* Subtle highlight for dark mode past items */
+    }
+
+    .badge.mini {
+        font-size: 0.7rem;
+        padding: 0.1rem 0.4rem;
+    }
+</style>
+{% endblock %}
