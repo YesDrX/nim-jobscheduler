@@ -99,39 +99,47 @@ proc runSchedulerMonitor*(s: SchedulerMonitor) {.gcsafe.} =
   s.loadTasksFromDir()
 
   while getIsRunning():
-    let referenceNowTime = now().utc
+    try:
+      let referenceNowTime = now().utc
 
-    if (referenceNowTime - s.lastTasksScanTime).inSeconds > 15:
-      s.loadTasksFromDir()
-      s.lastTasksScanTime = referenceNowTime
+      if (referenceNowTime - s.lastTasksScanTime).inSeconds > 15:
+        s.loadTasksFromDir()
+        s.lastTasksScanTime = referenceNowTime
 
-    if not s.lastExecutionsCleanupTime.isInitialized or (referenceNowTime -
-        s.lastExecutionsCleanupTime).inDays > 1:
-      s.dbChan[].send(DbMessage(kind: dbCleanupExecutions))
-      s.lastExecutionsCleanupTime = referenceNowTime
+      if not s.lastExecutionsCleanupTime.isInitialized or (referenceNowTime -
+          s.lastExecutionsCleanupTime).inDays > 1:
+        s.dbChan[].send(DbMessage(kind: dbCleanupExecutions))
+        s.lastExecutionsCleanupTime = referenceNowTime
 
-    while s.monitorChan[].peek() > 0:
-      let msg = s.monitorChan[].recv()
-      debug "Received monitor signal: " & $msg.kind
-      case msg.kind:
-        of smmAlert:
-          try:
-            let client = newSmtp(useSsl = s.cfg.smtp.useSSL)
-            defer: client.close()
-            client.connect(s.cfg.smtp.host, s.cfg.smtp.port.Port)
-            if s.cfg.smtp.fromAddr.len > 0 and s.cfg.smtp.password.len > 0:
-              client.auth(s.cfg.smtp.fromAddr, s.cfg.smtp.password)
-            let emailContent = createMessage(
-              mSubject = "Jobscheduler Alert: " & msg.messageTitle,
-              mBody = msg.message,
-              sender = s.cfg.smtp.fromAddr,
-              mTo = s.cfg.smtp.toAddrs
-            )
-            client.sendMail(s.cfg.smtp.fromAddr, s.cfg.smtp.toAddrs, $emailContent)
-            info "Alert email sent to " & s.cfg.smtp.toAddrs.join(",")
-          except:
-            error "Error sending alert: " & getCurrentExceptionMsg()
-            error "Alert message:\n" & msg.message
+      while s.monitorChan[].peek() > 0:
+        let msg = s.monitorChan[].recv()
+        debug "Received monitor signal: " & $msg.kind
+        case msg.kind:
+          of smmAlert:
+            try:
+              let client = newSmtp(useSsl = s.cfg.smtp.useSSL)
+              defer: client.close()
+              client.connect(s.cfg.smtp.host, s.cfg.smtp.port.Port)
+              if s.cfg.smtp.fromAddr.len > 0 and s.cfg.smtp.password.len > 0:
+                client.auth(s.cfg.smtp.fromAddr, s.cfg.smtp.password)
+              let emailContent = createMessage(
+                mSubject = "Jobscheduler Alert: " & msg.messageTitle,
+                mBody = msg.message,
+                sender = s.cfg.smtp.fromAddr,
+                mTo = s.cfg.smtp.toAddrs
+              )
+              client.sendMail(s.cfg.smtp.fromAddr, s.cfg.smtp.toAddrs, $emailContent)
+              info "Alert email sent to " & s.cfg.smtp.toAddrs.join(",")
+            except:
+              error "Error sending alert: " & getCurrentExceptionMsg()
+              error "Alert message:\n" & msg.message
+    except Exception as e:
+      error "Error in monitor loop: " & getCurrentExceptionMsg()
+      s.monitorChan[].send(SchedulerMonitorSignal(
+        kind: smmAlert,
+        messageTitle: "Monitor Error: " & getCurrentExceptionMsg(),
+        message: e.getStackTrace()
+      ))
 
     sleep 1000
   info "Stopping scheduler monitor"

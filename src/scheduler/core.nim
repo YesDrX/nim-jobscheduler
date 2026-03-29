@@ -64,60 +64,68 @@ proc startScheduler*(s: Scheduler) =
   s.triggerOnStartTasks()
 
   while getIsRunning():
-    let referenceNowTime = now().utc
+    try:
+      let referenceNowTime = now().utc
 
-    let (hasData, signal) = s.schedulerChan[].tryRecv()
-    if hasData:
-      debug "Received scheduler signal: " & $signal.kind
-      case signal.kind:
-      of ssStop:
-        info "Stopping scheduler..."
-        setIsRunning(false)
-        break
-      of ssReloadTasks:
-        s.reloadSchedulerTasks()
+      let (hasData, signal) = s.schedulerChan[].tryRecv()
+      if hasData:
+        debug "Received scheduler signal: " & $signal.kind
+        case signal.kind:
+        of ssStop:
+          info "Stopping scheduler..."
+          setIsRunning(false)
+          break
+        of ssReloadTasks:
+          s.reloadSchedulerTasks()
+          s.refreshSchedule()
+        of ssReloadSchedule:
+          s.refreshSchedule()
+        of ssPrintSchedule:
+          info "Reference Time: " & $referenceNowTime
+          info "Task Schedule: " & $s.taskSchedule
+
+      if not s.lastScheduleRefreshTime.isInitialized or (referenceNowTime -
+          s.lastScheduleRefreshTime > initDuration(hours = 6)):
         s.refreshSchedule()
-      of ssReloadSchedule:
-        s.refreshSchedule()
-      of ssPrintSchedule:
-        info "Reference Time: " & $referenceNowTime
-        info "Task Schedule: " & $s.taskSchedule
 
-    if not s.lastScheduleRefreshTime.isInitialized or (referenceNowTime -
-        s.lastScheduleRefreshTime > initDuration(hours = 6)):
-      s.refreshSchedule()
+      # Execute tasks
+      var executedTaskIdx = -1
+      let taskScheduleLen = s.taskSchedule.len
+      for i in 0 ..< taskScheduleLen:
+        let scheduledTask = s.taskSchedule[i]
+        if scheduledTask.triggerTime <= referenceNowTime:
+          if scheduledTask.taskId in s.tasks:
+            info "Triggering task: " & s.tasks[scheduledTask.taskId].name
+            s.executorChan[].send(ExecutorSignal(
+              kind: estTriggerTask,
+              triggerTaskId: scheduledTask.taskId,
+              triggerTaskTask: s.tasks[scheduledTask.taskId]
+            ))
+            executedTaskIdx += 1
+            let next = getNextTrigger(s.tasks[scheduledTask.taskId],
+                referenceNowTime, some(referenceNowTime))
+            if next.isSome and next.get() - referenceNowTime <
+                initDuration(days = 1):
+              info "Adding next trigger for task: " & s.tasks[
+                  scheduledTask.taskId].name & " at " & $next.get()
+              s.taskSchedule.add(ScheduledTask(triggerTime: next.get(
+                ), taskId: scheduledTask.taskId,
+                    taskName: scheduledTask.taskName))
+              info "Task Schedule after adding next trigger: " & $s.taskSchedule
+        else:
+          break
 
-    # Execute tasks
-    var executedTaskIdx = -1
-    let taskScheduleLen = s.taskSchedule.len
-    for i in 0 ..< taskScheduleLen:
-      let scheduledTask = s.taskSchedule[i]
-      if scheduledTask.triggerTime <= referenceNowTime:
-        if scheduledTask.taskId in s.tasks:
-          info "Triggering task: " & s.tasks[scheduledTask.taskId].name
-          s.executorChan[].send(ExecutorSignal(
-            kind: estTriggerTask,
-            triggerTaskId: scheduledTask.taskId,
-            triggerTaskTask: s.tasks[scheduledTask.taskId]
-          ))
-          executedTaskIdx += 1
-          let next = getNextTrigger(s.tasks[scheduledTask.taskId],
-              referenceNowTime, some(referenceNowTime))
-          if next.isSome and next.get() - referenceNowTime <
-              initDuration(days = 1):
-            info "Adding next trigger for task: " & s.tasks[
-                scheduledTask.taskId].name & " at " & $next.get()
-            s.taskSchedule.add(ScheduledTask(triggerTime: next.get(
-              ), taskId: scheduledTask.taskId,
-                  taskName: scheduledTask.taskName))
-            info "Task Schedule after adding next trigger: " & $s.taskSchedule
-      else:
-        break
-
-    if executedTaskIdx >= 0:
-      s.taskSchedule.delete(0 .. executedTaskIdx)
-      s.taskSchedule.sort(proc(a, b: ScheduledTask): int =
-        cmp(a.triggerTime, b.triggerTime))
+      if executedTaskIdx >= 0:
+        s.taskSchedule.delete(0 .. executedTaskIdx)
+        s.taskSchedule.sort(proc(a, b: ScheduledTask): int =
+          cmp(a.triggerTime, b.triggerTime))
+    except Exception as e:
+      error "Error in scheduler loop: " & getCurrentExceptionMsg()
+      s.monitorChan[].send(SchedulerMonitorSignal(
+        kind: smmAlert,
+        messageTitle: "Scheduler Error: " & getCurrentExceptionMsg(),
+        message: e.getStackTrace()
+      ))
 
     sleep 1000
 

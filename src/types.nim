@@ -305,6 +305,7 @@ type
   DbWorker* = ref object
     db*: DbConn
     ch*: ptr DbChannel
+    monitorChan*: ptr SchedulerMonitorChannel
 
   WebServer* = ref object
     dbChan*: ptr DbChannel
@@ -347,10 +348,12 @@ proc newExecutor*(dbChan: ptr DbChannel, schedulerChan: ptr SchedulerChannel,
   result.monitorChan = monitorChan
   result.cfg = cfg
 
-proc newDbWorker*(dbPath: string, ch: ptr DbChannel): DbWorker =
+proc newDbWorker*(dbPath: string, ch: ptr DbChannel,
+    monitorChan: ptr SchedulerMonitorChannel): DbWorker =
   new(result)
   result.db = open(dbPath, "", "", "")
   result.ch = ch
+  result.monitorChan = monitorChan
 
 proc newWebServer*(dbChan: ptr DbChannel, schedulerChan: ptr SchedulerChannel,
     executorChan: ptr ExecutorChannel, monitorChan: ptr SchedulerMonitorChannel,

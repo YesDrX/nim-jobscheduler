@@ -103,110 +103,118 @@ proc runDbWorker*(dbWorker: DbWorker) =
   let db = dbWorker.db
 
   while getIsRunning():
-    let msg = dbWorker.ch[].recv()
-    debug "Received db message: " & $msg.kind
+    try:
+      let msg = dbWorker.ch[].recv()
+      debug "Received db message: " & $msg.kind
 
-    case msg.kind:
-    of dbStop:
-      warn "Stopping db worker"
-      dbWorker.db.close()
-      break
+      case msg.kind:
+      of dbStop:
+        warn "Stopping db worker"
+        dbWorker.db.close()
+        break
 
-    # User
-    of dbInsertUser:
-      if getUserByUsername(db, msg.user.username).isSome():
-        warn "User " & msg.user.username & " already exists"
+      # User
+      of dbInsertUser:
+        if getUserByUsername(db, msg.user.username).isSome():
+          warn "User " & msg.user.username & " already exists"
+          if msg.userResultCh != nil:
+            msg.userResultCh[].send(-1)
+          continue
+
+        info "Adding user=" & msg.user.username & " email=" & msg.user.email
+        let userId = db.insertRowUser(msg.user)
         if msg.userResultCh != nil:
-          msg.userResultCh[].send(-1)
-        continue
+          msg.userResultCh[].send(userId)
 
-      info "Adding user=" & msg.user.username & " email=" & msg.user.email
-      let userId = db.insertRowUser(msg.user)
-      if msg.userResultCh != nil:
-        msg.userResultCh[].send(userId)
+      of dbUpdateUserPassword:
+        db.exec(sql"UPDATE UserTable SET passwordHash = ? WHERE _dbID = ?",
+            msg.newPasswordHash, msg.updateUserId)
 
-    of dbUpdateUserPassword:
-      db.exec(sql"UPDATE UserTable SET passwordHash = ? WHERE _dbID = ?",
-          msg.newPasswordHash, msg.updateUserId)
+      of dbDeleteUser:
+        db.deleteRowUser(msg.deleteUserId)
 
-    of dbDeleteUser:
-      db.deleteRowUser(msg.deleteUserId)
+      # Task
+      of dbInsertTask:
+        var taskCopy = msg.task
 
-    # Task
-    of dbInsertTask:
-      var taskCopy = msg.task
+        let taskId = db.insertRowTask(msg.task)
+        if msg.taskResultCh != nil:
+          msg.taskResultCh[].send(taskId)
+        for idx, job in msg.task.jobs.pairs:
+          discard db.insertRowJob(Job(
+              taskId: taskId,
+              name: job.name,
+              command: job.command,
+              orderIdx: idx
+          ))
 
-      let taskId = db.insertRowTask(msg.task)
-      if msg.taskResultCh != nil:
-        msg.taskResultCh[].send(taskId)
-      for idx, job in msg.task.jobs.pairs:
-        discard db.insertRowJob(Job(
-            taskId: taskId,
-            name: job.name,
-            command: job.command,
-            orderIdx: idx
-        ))
+      of dbUpdateTask:
+        db.updateRowTask(msg.updateTaskId, msg.updatedTask)
+        db.exec(sql"DELETE FROM JobTable WHERE taskId = ?", msg.updateTaskId)
+        for idx, job in msg.updatedTask.jobs.pairs:
+          discard db.insertRowJob(Job(
+              taskId: msg.updateTaskId,
+              name: job.name,
+              command: job.command,
+              orderIdx: idx
+          ))
 
-    of dbUpdateTask:
-      db.updateRowTask(msg.updateTaskId, msg.updatedTask)
-      db.exec(sql"DELETE FROM JobTable WHERE taskId = ?", msg.updateTaskId)
-      for idx, job in msg.updatedTask.jobs.pairs:
-        discard db.insertRowJob(Job(
-            taskId: msg.updateTaskId,
-            name: job.name,
-            command: job.command,
-            orderIdx: idx
-        ))
+      of dbDeleteTask:
+        db.deleteRowTask(msg.deleteTaskId)
+        db.exec(sql"DELETE FROM JobTable WHERE taskId = ?", msg.deleteTaskId)
+        if fileExists(msg.deleteTaskSourceFile):
+          removeFile(msg.deleteTaskSourceFile)
 
-    of dbDeleteTask:
-      db.deleteRowTask(msg.deleteTaskId)
-      db.exec(sql"DELETE FROM JobTable WHERE taskId = ?", msg.deleteTaskId)
-      if fileExists(msg.deleteTaskSourceFile):
-        removeFile(msg.deleteTaskSourceFile)
+      of dbToggleTask:
+        db.exec(sql"UPDATE TaskTable SET enabled = ? WHERE _dbID = ?",
+          if msg.toggleEnabled: 1 else: 0, msg.toggleTaskId)
 
-    of dbToggleTask:
-      db.exec(sql"UPDATE TaskTable SET enabled = ? WHERE _dbID = ?",
-        if msg.toggleEnabled: 1 else: 0, msg.toggleTaskId)
+      # Execution
+      of dbInsertExecution:
+        let executionId = db.insertRowExecution(msg.execution)
+        if msg.executionResultCh != nil:
+          msg.executionResultCh[].send(executionId)
 
-    # Execution
-    of dbInsertExecution:
-      let executionId = db.insertRowExecution(msg.execution)
-      if msg.executionResultCh != nil:
-        msg.executionResultCh[].send(executionId)
+      of dbDeleteExecution:
+        db.deleteRowExecution(msg.deleteExecutionId)
 
-    of dbDeleteExecution:
-      db.deleteRowExecution(msg.deleteExecutionId)
+      of dbUpdateExecution:
+        db.updateRowExecution(msg.updateExecutionId, msg.updatedExecution)
 
-    of dbUpdateExecution:
-      db.updateRowExecution(msg.updateExecutionId, msg.updatedExecution)
+      of dbUpdateExecutionIdentity:
+        db.exec(sql"UPDATE ExecutionTable SET pid = ?, processStartTime = ? WHERE _dbID = ?",
+            serialize(msg.newPid), serialize(msg.newIdentity),
+                msg.identityExecutionId)
 
-    of dbUpdateExecutionIdentity:
-      db.exec(sql"UPDATE ExecutionTable SET pid = ?, processStartTime = ? WHERE _dbID = ?",
-          serialize(msg.newPid), serialize(msg.newIdentity),
-              msg.identityExecutionId)
+      of dbUpdateExecutionStatus:
+        db.exec(sql"UPDATE ExecutionTable SET status = ?, endTime = ?, exitCode = ? WHERE _dbID = ?",
+            serialize(msg.newStatus), serialize(msg.newEndTime), serialize(
+                msg.newExitCode), msg.statusExecutionId)
 
-    of dbUpdateExecutionStatus:
-      db.exec(sql"UPDATE ExecutionTable SET status = ?, endTime = ?, exitCode = ? WHERE _dbID = ?",
-          serialize(msg.newStatus), serialize(msg.newEndTime), serialize(
-              msg.newExitCode), msg.statusExecutionId)
+      # Token
+      of dbInsertToken:
+        let tokenId = db.insertRowToken(msg.token)
+        if msg.tokenResultCh != nil:
+          msg.tokenResultCh[].send(tokenId)
 
-    # Token
-    of dbInsertToken:
-      let tokenId = db.insertRowToken(msg.token)
-      if msg.tokenResultCh != nil:
-        msg.tokenResultCh[].send(tokenId)
+      of dbDeleteToken:
+        db.deleteRowToken(msg.deleteTokenId)
 
-    of dbDeleteToken:
-      db.deleteRowToken(msg.deleteTokenId)
+      of dbDeleteUserTokens:
+        db.exec(sql"DELETE FROM TokenTable WHERE userId = ?",
+            msg.deleteTokensUserId)
 
-    of dbDeleteUserTokens:
-      db.exec(sql"DELETE FROM TokenTable WHERE userId = ?",
-          msg.deleteTokensUserId)
-
-    of dbCleanupExecutions:
-      let refTime = (now() - 7.days).toTime().toUnix()
-      db.exec(sql"DELETE FROM ExecutionTable WHERE _dbTimestamp < ? AND status != ?",
-          refTime, serialize("Running"))
+      of dbCleanupExecutions:
+        let refTime = (now() - 7.days).toTime().toUnix()
+        db.exec(sql"DELETE FROM ExecutionTable WHERE _dbTimestamp < ? AND status != ?",
+            refTime, serialize("Running"))
+    except Exception as e:
+      error "Error in db worker: " & getCurrentExceptionMsg()
+      dbWorker.monitorChan[].send(SchedulerMonitorSignal(
+        kind: smmAlert,
+        messageTitle: "DB Worker Error: " & getCurrentExceptionMsg(),
+        message: e.getStackTrace()
+      ))
 
   info "Stopping db worker"
 

@@ -327,27 +327,38 @@ proc runExecutor*(executor: Executor) =
         ))
 
     while getIsRunning():
-        while executor.executorChan[].peek() > 0:
-            let msg = executor.executorChan[].recv()
-            debug "Received executor message: " & $msg.kind
-            case msg.kind:
-                of ExecutorSignalType.estTriggerTask:
-                    let jobs = db.queryRowsJob("taskId = " &
-                            $msg.triggerTaskId & " ORDER BY orderIdx ASC")
-                    executor.executeTask(msg.triggerTaskId, msg.triggerTaskTask,
-                            jobs, msg.triggerTaskManualTriggered)
-                of ExecutorSignalType.estTriggerJob:
-                    let jobs = db.queryRowsJob("taskId = " &
-                            $msg.triggerJobTaskId & " ORDER BY orderIdx ASC")
-                    executor.executeJob(msg.triggerJobTaskId,
-                            msg.triggerJobTask, msg.triggerJobJobId,
-                            msg.triggerJobJob, nextJobId = -1, nextJob = Job(),
-                            jobsTuple = jobs,
-                            manualTriggered = msg.triggerJobManualTriggered)
-                of ExecutorSignalType.estCancelExecution:
-                    executor.cancelExecution(msg.cancelExecutionId)
+        try:
+            while executor.executorChan[].peek() > 0:
+                let msg = executor.executorChan[].recv()
+                debug "Received executor message: " & $msg.kind
+                case msg.kind:
+                    of ExecutorSignalType.estTriggerTask:
+                        let jobs = db.queryRowsJob("taskId = " &
+                                $msg.triggerTaskId & " ORDER BY orderIdx ASC")
+                        executor.executeTask(msg.triggerTaskId,
+                                msg.triggerTaskTask,
 
-        executor.checkLiveExecutions()
+jobs, msg.triggerTaskManualTriggered)
+                    of ExecutorSignalType.estTriggerJob:
+                        let jobs = db.queryRowsJob("taskId = " &
+                                $msg.triggerJobTaskId & " ORDER BY orderIdx ASC")
+                        executor.executeJob(msg.triggerJobTaskId,
+                                msg.triggerJobTask, msg.triggerJobJobId,
+                                msg.triggerJobJob, nextJobId = -1,
+                                nextJob = Job(),
+                                jobsTuple = jobs,
+                                manualTriggered = msg.triggerJobManualTriggered)
+                    of ExecutorSignalType.estCancelExecution:
+                        executor.cancelExecution(msg.cancelExecutionId)
+
+            executor.checkLiveExecutions()
+        except Exception as e:
+            error "Error in executor loop: " & getCurrentExceptionMsg()
+            executor.monitorChan[].send(SchedulerMonitorSignal(
+                kind: smmAlert,
+                messageTitle: "Executor Error: " & getCurrentExceptionMsg(),
+                message: e.getStackTrace()
+            ))
 
         sleep(1000)
     info "Stopping executor"
