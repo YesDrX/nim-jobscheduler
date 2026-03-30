@@ -1,5 +1,6 @@
 tasksDir: "./tasks"
 workingDir: "~/.jobscheduler/"
+logLevel: "DEBUG"
 
 database:
   path: "jobscheduler.db"

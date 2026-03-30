@@ -1,5 +1,118 @@
-import std/[tables, sequtils, os, osproc, times]
+import std/[tables, sequtils, os, osproc, times, strutils]
 import ./[types, database, orm, utils]
+
+when not defined(windows):
+  import posix
+
+proc runScript*(scriptPath: string): ExecutionProcess = 
+  let fullPath = scriptPath.absolutePath()
+  debug "Running script: " & fullPath
+  if not fileExists(fullPath):
+    raise newException(OSError, "Script not found: " & fullPath)
+  
+  when defined(windows):
+    let p = startProcess("cmd.exe", args = ["/c", fullPath], 
+                         options = {poDaemon, poParentStreams})
+    return p.processID().ExecutionProcess
+
+  else:
+    let pid = fork()
+    
+    if pid < 0:
+      raise newException(OSError, "Fork failed")
+    
+    if pid == 0:
+      discard setsid() # Create new session (detaches from parent/terminal)
+      discard execv(fullPath.cstring, nil.cstringArray)
+    else:
+      return pid.ExecutionProcess
+
+  debug "Starting child process: " & $pid
+
+proc isRunning*(p: ExecutionProcess): bool =
+  when defined(windows):
+    import winlean
+    let handle = openProcess(SYNCHRONIZE, 0, p.int.DWORD)
+    if handle == 0:
+      return false  # Process doesn't exist or no permission
+    defer: discard closeHandle(handle)
+    let res = waitForSingleObject(handle, 0)
+    return res == WAIT_TIMEOUT  # Still running if timeout (not yet signaled)
+
+  else:
+    # waitpid with WNOHANG returns 0 if process is still running
+    var status: cint
+    let res = waitpid(p.Pid, status, WNOHANG)
+    if res == 0:
+      return true   # Still running
+    elif res == p.int:
+      return false  # Exited
+    else:
+      # res == -1: ECHILD means no such child (already reaped or never a child)
+      return false
+
+proc getExitCode*(execution: Execution, p: ExecutionProcess): int =
+  ## Called only when the process is no longer running.
+  ## First checks the .exit sidecar file written by the script.
+  ## Falls back to OS-level exit code query, or returns -1 if unavailable.
+  let exitFile = execution.scriptFilename & ".exit"
+  if fileExists(exitFile):
+    try:
+      let code = readFile(exitFile).strip().parseInt()
+      return code
+    except ValueError:
+      discard  # malformed file – fall through to OS-level query
+
+  # .exit file not present: fall back to OS-level query (best-effort).
+  when defined(windows):
+    import winlean
+    let handle = openProcess(SYNCHRONIZE or PROCESS_QUERY_INFORMATION, 0, p.int.DWORD)
+    if handle == 0:
+      return -1
+    defer: discard closeHandle(handle)
+    discard waitForSingleObject(handle, INFINITE)  # Block until done
+    var code: DWORD
+    if getExitCodeProcess(handle, code) == 0:
+      return -1
+    return code.int
+
+  else:
+    var status: cint
+    let res = waitpid(p.Pid, status, WNOHANG)  # Non-blocking: process already gone
+    if res == p.int:
+      if WIFEXITED(status):
+        return WEXITSTATUS(status)
+      elif WIFSIGNALED(status):
+        return 128 + WTERMSIG(status)  # Unix convention: 128 + signal number
+    # Process has already been reaped or not found – it crashed without leaving an exit file
+    return -1
+
+proc terminate*(p: ExecutionProcess) =
+  when defined(windows):
+    import winlean
+    let handle = openProcess(PROCESS_TERMINATE, 0, p.int.DWORD)
+    if handle == 0:
+      return
+    defer: discard closeHandle(handle)
+    discard terminateProcess(handle, 1)
+
+  else:
+    # First attempt graceful shutdown via SIGTERM
+    let termRes = kill(p.Pid, SIGTERM)
+    if termRes != 0:
+      return  # Process already gone
+
+    # Give it up to 5 seconds to exit cleanly
+    var status: cint
+    for _ in 0 ..< 50:
+      let res = waitpid(p.Pid, status, WNOHANG)
+      if res == p.Pid:
+        return  # Exited cleanly
+      sleep(100)
+
+    # Force kill if still alive
+    discard kill(p.Pid, SIGKILL)
+    discard waitpid(p.Pid, status, 0)  # Reap the zombie
 
 proc runLocalCommand*(
     executor: Executor,
@@ -9,7 +122,7 @@ proc runLocalCommand*(
     job: Job,
     nextJobId: int,
     manualTriggered: bool = false
-): tuple[exec: Execution, p: Process] =
+): tuple[exec: Execution, p: ExecutionProcess] =
     let dt = now().format("yyyyMMdd") & "_" & now().format("HHmmss")
     let logDir = (executor.cfg.workingDir.expandTilde / task.name /
             job.name).sanitizeFileName
@@ -20,17 +133,20 @@ proc runLocalCommand*(
     var scriptPath: string
     when defined(windows):
         scriptPath = logDir / (dt & ".bat")
+        let exitFile = scriptPath & ".exit"
         let scriptContent = "@echo off\r\ncall " & job.command & " > \"" &
-                logFile & "\" 2>&1\r\n"
+                logFile & "\" 2>&1\r\necho %ERRORLEVEL% > \"" & exitFile & "\"\r\n"
         writeFile(scriptPath, scriptContent)
     else:
         scriptPath = logDir / (dt & ".sh")
+        let exitFile = scriptPath & ".exit"
         let scriptContent = "#!/bin/bash\nexec > \"" & logFile & "\" 2>&1\n" &
-                job.command & "\n"
+                job.command & "\n" &
+                "echo $? > \"" & exitFile & "\"\n"
         writeFile(scriptPath, scriptContent)
         inclFilePermissions(scriptPath, {fpUserExec, fpGroupExec, fpOthersExec})
 
-    let p = startProcess(scriptPath, options = {poEvalCommand, poParentStreams})
+    let p = runScript(scriptPath)
 
     var execution = Execution(
         jobId: jobId,
@@ -38,7 +154,7 @@ proc runLocalCommand*(
         taskId: taskId,
         jobName: job.name,
         taskName: task.name,
-        pid: p.processID(),
+        pid: p.int,
         processStartTime: now().toTime().toUnix(),
         startTime: now(),
         status: esRunning,
@@ -57,7 +173,7 @@ proc runRemoteCommand*(
     job: Job,
     nextJobId: int,
     manualTriggered: bool = false
-): tuple[exec: Execution, p: Process] =
+): tuple[exec: Execution, p: ExecutionProcess] =
     let dt = now().format("yyyyMMdd") & "_" & now().format("HHmmss")
     let logDir = (executor.cfg.workingDir.expandTilde / task.name /
             job.name).sanitizeFileName
@@ -87,17 +203,21 @@ proc runRemoteCommand*(
 
     when defined(windows):
         scriptPath = logDir / (dt & "_remote.bat")
+        let exitFile = scriptPath & ".exit"
         let scriptContent = "@echo off\r\ncall " & scpCmd & "\r\ncall " &
-                sshCmd & " > \"" & logFile & "\" 2>&1\r\n"
+                sshCmd & " > \"" & logFile & "\" 2>&1\r\necho %ERRORLEVEL% > \"" &
+                exitFile & "\"\r\n"
         writeFile(scriptPath, scriptContent)
     else:
         scriptPath = logDir / (dt & "_remote.sh")
+        let exitFile = scriptPath & ".exit"
         let scriptContent = "#!/bin/bash\n" & scpCmd & "\nexec > \"" & logFile &
-                "\" 2>&1\n" & sshCmd & "\n"
+                "\" 2>&1\n" & sshCmd & "\n" &
+                "echo $? > \"" & exitFile & "\"\n"
         writeFile(scriptPath, scriptContent)
         inclFilePermissions(scriptPath, {fpUserExec, fpGroupExec, fpOthersExec})
 
-    let p = startProcess(scriptPath, options = {poEvalCommand, poParentStreams})
+    let p = runScript(scriptPath)
 
     var execution = Execution(
         jobId: jobId,
@@ -105,7 +225,7 @@ proc runRemoteCommand*(
         taskId: taskId,
         jobName: job.name,
         taskName: task.name,
-        pid: p.processID(),
+        pid: p.int,
         processStartTime: now().toTime().toUnix(),
         startTime: now(),
         status: esRunning,
@@ -136,46 +256,38 @@ proc cleanupScripts*(executor: Executor, execution: Execution, task: Task) =
         for file in walkPattern(localDir / "*_cmd.sh"):
             try: removeFile(file)
             except OSError: discard
+        # Clean up .exit sidecar files from remote scripts
+        for file in walkPattern(localDir / "*_remote.*.exit"):
+            try: removeFile(file)
+            except OSError: discard
     else:
         if fileExists(execution.scriptFilename):
-            try: removeFile(execution.scriptFilename)
-            except OSError: discard
+          debug "Removing script file: " & execution.scriptFilename
+          try: removeFile(execution.scriptFilename)
+          except OSError: discard
+        # Clean up associated .exit sidecar file
+        let exitFile = execution.scriptFilename & ".exit"
+        if fileExists(exitFile):
+          debug "Removing exit file: " & exitFile
+          try: removeFile(exitFile)
+          except OSError: discard
 
 proc checkProcessStatus*(execution: var Execution,
-        p: Process): ExecutionStatus =
+        p: ExecutionProcess): ExecutionStatus =
     var status: ExecutionStatus
-    if p != nil:
-        if p.running():
+    if p.int <= 0:
+        status = esLost
+    else:
+        if isRunning(p):
             status = esRunning
         else:
-            let exitCode = p.peekExitCode()
+            let exitCode = getExitCode(execution, p)
             execution.exitCode = exitCode
             if exitCode == 0:
                 status = esSuccess
             else:
                 status = esFailed
-    else:
-        # Process handle missing, check system processes
-        let pid = execution.pid
-        if pid <= 0:
-            status = esLost
-        else:
-            when defined(posix):
-                let code = execShellCmd("kill -0 " & $pid & " > /dev/null 2>&1")
-                if code == 0:
-                    status = esRunning
-                else:
-                    status = esLost
-            elif defined(windows):
-                let code = execShellCmd("tasklist /FI \"PID eq " & $pid &
-                        "\" | findstr " & $pid & " > nul 2>&1")
-                if code == 0:
-                    status = esRunning
-                else:
-                    status = esLost
-            else:
-                status = esLost
-
+            debug "Execution with pid " & $p.int & " finished with exit code " & $exitCode
     return status
 
 proc executeJob*(
@@ -236,7 +348,7 @@ proc cancelExecution*(executor: Executor, executionId: int) =
     if executor.liveExecutions.hasKey(executionId):
         var execTuple = executor.liveExecutions[executionId]
         let p = execTuple.p
-        if p != nil and p.running():
+        if p.int > 0 and p.isRunning():
             p.terminate()
 
         executor.cleanupScripts(execTuple.execution, execTuple.task)

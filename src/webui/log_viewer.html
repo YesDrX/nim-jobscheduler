@@ -33,7 +33,7 @@
     const execution = {{ executionJson }};
 
     let autoScroll = true;
-    let eventSource = null;
+    let pollInterval = null;
 
     function toggleAutoScroll() {
         autoScroll = !autoScroll;
@@ -46,13 +46,13 @@
 
     function scrollToBottom() {
         if (autoScroll) {
-            const logContent = document.getElementById('log-content');
-            logContent.scrollTop = logContent.scrollHeight;
+            // Scroll the .log-viewer container, not the <code> element
+            const viewer = document.querySelector('.log-viewer');
+            if (viewer) viewer.scrollTop = viewer.scrollHeight;
         }
     }
 
-    async function loadExecutionInfo() {
-        const exec = execution;
+    function updateExecutionInfo(exec) {
         document.getElementById('exec-status').textContent = exec.status;
         document.getElementById('exec-status').className = `status-badge status-${exec.status.toLowerCase()}`;
         document.getElementById('exec-start').textContent = new Date(exec.startTime).toLocaleString();
@@ -60,7 +60,11 @@
         document.getElementById('exec-file').textContent = exec.logFile || 'Unknown';
     }
 
-    async function loadLogContent() {
+    async function loadExecutionInfo() {
+        updateExecutionInfo(execution);
+    }
+
+    async function loadLogContent(stopPollingWhenDone) {
         try {
             const response = await fetch(`/api/execution_log?id=${execId}`, { method: 'POST' });
             if (!response.ok) throw new Error("Failed to load log");
@@ -69,37 +73,44 @@
             el.textContent = content.content || 'No log content available';
             Prism.highlightElement(el);
             scrollToBottom();
+
+            // Stop polling once the execution has finished
+            if (stopPollingWhenDone && content.status) {
+                const s = content.status.toLowerCase();
+                if (s !== 'running' && s !== 'pending' && s !== 'scheduled' && s !== 'triggered') {
+                    stopPolling();
+                }
+            }
         } catch (error) {
             document.getElementById('log-content').textContent = 'Error loading log: ' + error;
+            stopPolling();
         }
     }
 
-    // Real-time log streaming using SSE
-    function startLogPolling() {
-        // SSE connection (Backend sends full log, so no need to separate load)
-        const el = document.getElementById('log-content');
-        // Clear initial "Loading..." message if we are starting stream
-        el.textContent = "";
-        const source = streamLog(execId, el);
+    function stopPolling() {
+        if (pollInterval !== null) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+        }
+    }
 
-        // Re-highlight periodically if streaming
-        setInterval(() => {
-            if (source.readyState === 1) Prism.highlightElement(el);
-        }, 2000);
+    // Poll the log endpoint every 2s for live jobs
+    function startLogPolling() {
+        // Load immediately, then repeat
+        loadLogContent(true);
+        pollInterval = setInterval(() => loadLogContent(true), 2000);
     }
 
     // Main init logic
     async function init() {
         await loadExecutionInfo();
 
-        // Check status from the execution info loaded
-        const statusEl = document.getElementById('exec-status');
-        const status = statusEl.textContent.trim().toLowerCase();
+        const status = execution.status ? execution.status.toLowerCase() : '';
 
-        if (status === 'running' || status === 'pending' || status === '-') {
+        if (status === 'running' || status === 'pending' || status === 'scheduled' || status === 'triggered' || status === '') {
             startLogPolling();
         } else {
-            loadLogContent();
+            loadLogContent(false);
         }
     }
 

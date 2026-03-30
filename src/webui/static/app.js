@@ -41,7 +41,7 @@ async function apiCall(url, options = {}) {
 
 // SSE log streaming
 function streamLog(execId, targetElement) {
-    const eventSource = new EventSource(`/api/executions/${execId}/log/stream`);
+    const eventSource = new EventSource(`/api/stream_execution_log?id=${execId}`);
 
     eventSource.onmessage = (event) => {
         if (targetElement) {

@@ -123,7 +123,8 @@ proc runSchedulerMonitor*(s: SchedulerMonitor) {.gcsafe.} =
               if s.cfg.smtp.fromAddr.len > 0 and s.cfg.smtp.password.len > 0:
                 client.auth(s.cfg.smtp.fromAddr, s.cfg.smtp.password)
               let emailContent = createMessage(
-                mSubject = "Jobscheduler Alert: " & msg.messageTitle,
+                mSubject = "Jobscheduler Alert: " & msg.messageTitle.replace(
+                    "\n", " ").replace("\r", " "),
                 mBody = msg.message,
                 sender = s.cfg.smtp.fromAddr,
                 mTo = s.cfg.smtp.toAddrs

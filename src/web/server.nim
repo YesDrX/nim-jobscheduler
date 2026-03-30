@@ -456,7 +456,39 @@ proc runWebServer*(webServer: WebServer) =
         let absPath = absolutePath(execution.logFile)
         warn "Log file not found at: " & absPath
         content = "Log file not found at " & absPath
-      await respJson(req, %*{"content": content})
+      await respJson(req, %*{"content": content, "status": $execution.status})
+      return
+
+    if path == "/api/stream_execution_log" and httpMethod == HttpGet:
+      let queryJson = decodeQueryAsTable(req.url.query)
+      let id = queryJson.getOrDefault("id", "-1").parseInt
+      let execs = queryRowsExecution(db, "_dbID = " & $id)
+      if execs.len == 0:
+        await resp404(req, "Execution not found")
+        return
+      let execution = execs[0].data
+      let headers = newHttpHeaders([
+        ("Content-Type", "text/event-stream"),
+        ("Cache-Control", "no-cache"),
+        ("Connection", "keep-alive")
+      ])
+      debug "Stream log for execution: " & $id
+      await req.respond(Http200, "", headers)
+
+      if fileExists(execution.logFile):
+        let f = open(execution.logFile)
+        defer: f.close()
+
+        while not f.endOfFile():
+          let line = f.readLine()
+          debug "Stream log: " & line
+          await req.respond(Http200, "data: " & line & "\n\n", headers)
+          await sleepAsync(100)
+
+      else:
+        await req.respond(Http200, "data: Log file not found\n\n", headers)
+
+      debug "Stream log for execution: " & $id & " finished"
       return
 
     if path == "/api/download_log" and httpMethod == HttpGet:

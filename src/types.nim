@@ -293,13 +293,15 @@ type
     lastFileModTime*: Table[string, Time]
     lastExecutionsCleanupTime*: DateTime
 
+  ExecutionProcess* = distinct int
+
   Executor* = ref object
     dbChan*: ptr DbChannel
     schedulerChan*: ptr SchedulerChannel
     executorChan*: ptr ExecutorChannel
     monitorChan*: ptr SchedulerMonitorChannel
     cfg*: Config
-    liveExecutions*: Table[int, tuple[execution: Execution, p: Process,
+    liveExecutions*: Table[int, tuple[execution: Execution, p: ExecutionProcess,
         task: Task, jobsTuple: seq[tuple[dbId: int, data: Job]]]]
 
   DbWorker* = ref object
