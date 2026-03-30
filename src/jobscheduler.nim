@@ -22,6 +22,15 @@ proc start(config = DefaultConfigPath) =
 
   let cfg = loadConfig(config)
   setLogLevel(cfg.logLevel)
+  debug "Config loaded: \n" & cfg.toYamlString()
+  if cfg.auth.password != "":
+    var cfgCopy = cfg
+    cfgCopy.auth.password = ""
+    try:
+      # remove password from config file
+      writeFile(config, cfgCopy.toYamlString())
+    except:
+      discard
 
   # 2. Channels
   var

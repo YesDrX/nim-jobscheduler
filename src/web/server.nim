@@ -100,6 +100,7 @@ proc runWebServer*(webServer: WebServer) =
     dbChan = webServer.dbChan
     schedulerChan = webServer.schedulerChan
     executorChan = webServer.executorChan
+    monitorChan = webServer.monitorChan
 
   proc handleRequest(req: Request) {.async, gcsafe.} =
     let path = req.url.path
@@ -673,6 +674,10 @@ proc runWebServer*(webServer: WebServer) =
       warn getCurrentExceptionMsg()
       warn getStackTrace()
       await resp500(req, getCurrentExceptionMsg())
+      monitorChan[].send(SchedulerMonitorSignal(kind: smmAlert,
+          messageTitle: "Jobscheduler: Web Server Error :" &
+          getCurrentExceptionMsg(),
+          message: e.getStackTrace()))
 
   let port = Port(webServer.cfg.server.port)
   var server = newAsyncHttpServer()

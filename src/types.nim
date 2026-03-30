@@ -1,4 +1,4 @@
-import std/[strutils, times, options, os, tables, osproc]
+import std/[strutils, times, options, os, tables]
 import checksums/md5
 import db_connector/db_sqlite
 import ./[config, database, serialize]
