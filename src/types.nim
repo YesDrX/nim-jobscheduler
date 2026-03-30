@@ -54,9 +54,9 @@ type
 
     # SSH specific
     sshHost*: string
-    sshPort*: int
+    sshPort*: int = 22
     sshUser*: string
-    sshKeyPath*: string
+    sshKeyPath*: string = "~/.ssh/id_rsa"
 
     # Scheduling
     scheduleType*: ScheduleType
@@ -102,6 +102,12 @@ type
     canReconnect*: bool
     errorMessage*: string
     scriptFilename*: string
+    remoteScriptFilename*: string
+    exitCodeFilename*: string
+    remoteSshHost*: string
+    remoteSshPort*: int
+    remoteSshUser*: string
+    remoteSshKeyPath*: string
 
 # Job
 type

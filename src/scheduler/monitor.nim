@@ -130,7 +130,8 @@ proc runSchedulerMonitor*(s: SchedulerMonitor) {.gcsafe.} =
                 mTo = s.cfg.smtp.toAddrs
               )
               client.sendMail(s.cfg.smtp.fromAddr, s.cfg.smtp.toAddrs, $emailContent)
-              info "Alert email sent to " & s.cfg.smtp.toAddrs.join(",")
+              info "Alert email sent to " & s.cfg.smtp.toAddrs.join(",") &
+                  " : " & msg.messageTitle
             except:
               error "Error sending alert: " & getCurrentExceptionMsg()
               error "Alert message:\n" & msg.message

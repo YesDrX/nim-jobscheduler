@@ -54,13 +54,15 @@ proc getExitCode*(execution: Execution, p: ExecutionProcess): int =
   ## Called only when the process is no longer running.
   ## First checks the .exit sidecar file written by the script.
   ## Falls back to OS-level exit code query, or returns -1 if unavailable.
-  let exitFile = execution.scriptFilename & ".exit"
+  let exitFile = execution.exitCodeFilename
   if fileExists(exitFile):
     try:
       let code = readFile(exitFile).strip().parseInt()
       return code
     except ValueError:
-      discard  # malformed file – fall through to OS-level query
+      debug "Exit file " & exitFile & " is malformed: " & readFile(exitFile)
+  else:
+    debug "Exit file not found: " & exitFile
 
   # .exit file not present: fall back to OS-level query (best-effort).
   when defined(windows):
@@ -157,7 +159,8 @@ proc runLocalCommand*(
         status: esRunning,
         logFile: logFile,
         scriptFilename: scriptPath,
-        manualTriggered: manualTriggered
+        manualTriggered: manualTriggered,
+        exitCodeFilename: exitFile
     )
 
     return (execution, p)
@@ -178,8 +181,8 @@ proc runRemoteCommand*(
 
     let logFile = logDir / (dt & ".log")
 
-    let keyPath = if task.sshKeyPath.len >
-            0: task.sshKeyPath else: executor.cfg.ssh.defaultKeyPath
+    let keyPath = (if task.sshKeyPath.len >
+            0: task.sshKeyPath else: executor.cfg.ssh.defaultKeyPath).expandTilde
     let sshPort = if task.sshPort > 0: task.sshPort else: 22
     let sshUser = task.sshUser
     let sshHost = task.sshHost
@@ -187,14 +190,14 @@ proc runRemoteCommand*(
     var scriptPath: string
     let remoteScriptPath = ("/tmp/" & task.name & "_" & job.name & "_" & dt &
             ".sh").sanitizeFileName
-
+    
     let jobCommandFile = logDir / (dt & "_cmd.sh")
     let cmdScriptContent = "#!/bin/bash\n" & job.command & "\n"
     writeFile(jobCommandFile, cmdScriptContent)
 
-    let scpCmd = "scp -q -o BatchMode=yes -P " & $sshPort & " -i \"" & keyPath &
+    let scpCmd = "scp -q -o StrictHostKeyChecking=no -o BatchMode=yes -P " & $sshPort & " -i \"" & keyPath &
             "\" \"" & jobCommandFile & "\" " & sshUser & "@" & sshHost & ":" & remoteScriptPath
-    let sshCmd = "ssh -o ServerAliveInterval=60 -o BatchMode=yes -p " &
+    let sshCmd = "ssh -o ServerAliveInterval=60 -o StrictHostKeyChecking=no -o BatchMode=yes -p " &
             $sshPort & " -i \"" & keyPath & "\" " & sshUser & "@" & sshHost &
             " \"bash " & remoteScriptPath & "\""
 
@@ -227,47 +230,38 @@ proc runRemoteCommand*(
         startTime: now(),
         status: esRunning,
         logFile: logFile,
-        scriptFilename: remoteScriptPath,
-        manualTriggered: manualTriggered
+        scriptFilename: scriptPath,
+        remoteScriptFilename: remoteScriptPath,
+        manualTriggered: manualTriggered,
+        exitCodeFilename: exitFile,
+        remoteSshHost: sshHost,
+        remoteSshPort: sshPort,
+        remoteSshUser: sshUser,
+        remoteSshKeyPath: keyPath
     )
 
     return (execution, p)
 
 proc cleanupScripts*(executor: Executor, execution: Execution, task: Task) =
-    if execution.scriptFilename.len == 0: return
-
-    if task.taskType == ttRemote:
-        let keyPath = if task.sshKeyPath.len >
-                0: task.sshKeyPath else: executor.cfg.ssh.defaultKeyPath
-        let sshPort = if task.sshPort > 0: task.sshPort else: 22
-        let rmCmd = "ssh -o BatchMode=yes -p " & $sshPort & " -i \"" & keyPath &
-                "\" " & task.sshUser & "@" & task.sshHost & " \"rm -f " &
-                execution.scriptFilename & "\""
+  debug "Cleaning up scripts for task " & $task.name
+  if task.taskType == ttRemote:
+    if execution.remoteScriptFilename.len > 0:
+      debug "Removing remote script file: " & execution.remoteScriptFilename & " from host " & execution.remoteSshHost
+      let rmCmd = "ssh -o StrictHostKeyChecking=no -o BatchMode=yes -p " & $execution.remoteSshPort & " -i " & execution.remoteSshKeyPath & " " & execution.remoteSshUser & "@" & execution.remoteSshHost & " \"rm -f " & execution.remoteScriptFilename & "\""
+      try:
         discard execShellCmd(rmCmd)
+      except:
+        debug "Failed to remove remote script file: " & execution.remoteScriptFilename & " from host " & execution.remoteSshHost
 
-        let localDir = executor.cfg.workingDir.expandTilde / task.name /
-                execution.jobName
-        for file in walkPattern(localDir / "*_remote.*"):
-            try: removeFile(file)
-            except OSError: discard
-        for file in walkPattern(localDir / "*_cmd.sh"):
-            try: removeFile(file)
-            except OSError: discard
-        # Clean up .exit sidecar files from remote scripts
-        for file in walkPattern(localDir / "*_remote.*.exit"):
-            try: removeFile(file)
-            except OSError: discard
-    else:
-        if fileExists(execution.scriptFilename):
-          debug "Removing script file: " & execution.scriptFilename
-          try: removeFile(execution.scriptFilename)
-          except OSError: discard
-        # Clean up associated .exit sidecar file
-        let exitFile = execution.scriptFilename & ".exit"
-        if fileExists(exitFile):
-          debug "Removing exit file: " & exitFile
-          try: removeFile(exitFile)
-          except OSError: discard
+  if fileExists(execution.scriptFilename):
+    debug "Removing script file: " & execution.scriptFilename
+    try: removeFile(execution.scriptFilename)
+    except OSError: discard
+  
+  if fileExists(execution.exitCodeFilename):
+    debug "Removing exit file: " & execution.exitCodeFilename
+    try: removeFile(execution.exitCodeFilename)
+    except OSError: discard
 
 proc checkProcessStatus*(execution: var Execution,
         p: ExecutionProcess): ExecutionStatus =
