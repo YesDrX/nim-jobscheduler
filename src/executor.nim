@@ -427,6 +427,7 @@ proc runExecutor*(executor: Executor) =
 
     # change execution status on startup
     let liveExecutions = db.queryRowsExecution("""status = '"Running"'""")
+    var lostExecutionMessages: seq[string]
     for (execId, exec) in liveExecutions:
         var execCopy = exec
         execCopy.status = esLost
@@ -436,6 +437,14 @@ proc runExecutor*(executor: Executor) =
             newStatus: esLost,
             newEndTime: now(),
             newExitCode: -1
+        ))
+        lostExecutionMessages.add("Task: " & exec.taskName & " Job: " & exec.jobName & " Execution ID: " & $execId & " PID: " & $exec.pid)
+    if lostExecutionMessages.len > 0:
+        var messageContent = "On startup, the following executions were found as running. They are now marked as lost. Please check if they are still running and cancel them if necessary.\n"
+        executor.monitorChan[].send(SchedulerMonitorSignal(
+            kind: smmAlert,
+            messageTitle: "Running Jobs Found on Startup",
+            message: messageContent & lostExecutionMessages.join("\n")
         ))
 
     while getIsRunning():
@@ -447,10 +456,9 @@ proc runExecutor*(executor: Executor) =
                     of ExecutorSignalType.estTriggerTask:
                         let jobs = db.queryRowsJob("taskId = " &
                                 $msg.triggerTaskId & " ORDER BY orderIdx ASC")
-                        executor.executeTask(msg.triggerTaskId,
-                                msg.triggerTaskTask,
-
-jobs, msg.triggerTaskManualTriggered)
+                        executor.executeTask(msg.triggerTaskId, msg.triggerTaskTask,
+                                jobs, msg.triggerTaskManualTriggered)
+                        
                     of ExecutorSignalType.estTriggerJob:
                         let jobs = db.queryRowsJob("taskId = " &
                                 $msg.triggerJobTaskId & " ORDER BY orderIdx ASC")
@@ -460,6 +468,7 @@ jobs, msg.triggerTaskManualTriggered)
                                 nextJob = Job(),
                                 jobsTuple = jobs,
                                 manualTriggered = msg.triggerJobManualTriggered)
+                        
                     of ExecutorSignalType.estCancelExecution:
                         executor.cancelExecution(msg.cancelExecutionId)
 
