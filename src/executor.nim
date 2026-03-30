@@ -27,8 +27,6 @@ proc runScript*(scriptPath: string): ExecutionProcess =
     else:
       return pid.ExecutionProcess
 
-  debug "Starting child process: " & $pid
-
 proc isRunning*(p: ExecutionProcess): bool =
   when defined(windows):
     import winlean
