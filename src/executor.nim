@@ -64,7 +64,6 @@ proc getExitCode*(execution: Execution, p: ExecutionProcess): int =
 
   # .exit file not present: fall back to OS-level query (best-effort).
   when defined(windows):
-    import winlean
     let handle = openProcess(SYNCHRONIZE or PROCESS_QUERY_INFORMATION, 0, p.int.DWORD)
     if handle == 0:
       return -1
@@ -88,7 +87,6 @@ proc getExitCode*(execution: Execution, p: ExecutionProcess): int =
 
 proc terminate*(p: ExecutionProcess) =
   when defined(windows):
-    import winlean
     let handle = openProcess(PROCESS_TERMINATE, 0, p.int.DWORD)
     if handle == 0:
       return
