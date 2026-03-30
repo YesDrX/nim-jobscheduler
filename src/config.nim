@@ -1,5 +1,6 @@
-import yaml, streams, os
-import ./utils
+import yaml, streams, os, json
+import yaml/tojson
+import ./[utils, serialize]
 
 type
   DatabaseConfig* = object
@@ -46,11 +47,10 @@ type
 proc loadConfig*(path: string): Config =
   if not fileExists(path):
     raise newException(IOError, "Config file not found: " & path)
-
-  var s = newFileStream(path)
-  defer: s.close()
-  load(s, result)
-
+  let fs = newFileStream(path, fmRead)
+  defer: fs.close()
+  let cfgJson = loadToJson(fs)
+  result = deserializeJson[Config](cfgJson[0])
   info "Loaded config from " & path
 
 proc saveConfig*(path: string, cfg: Config) =
