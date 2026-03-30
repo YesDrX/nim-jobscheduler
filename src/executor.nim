@@ -3,6 +3,8 @@ import ./[types, database, orm, utils]
 
 when not defined(windows):
   import posix
+else:
+  import winlean
 
 proc runScript*(scriptPath: string): ExecutionProcess = 
   let fullPath = scriptPath.absolutePath()
@@ -29,7 +31,6 @@ proc runScript*(scriptPath: string): ExecutionProcess =
 
 proc isRunning*(p: ExecutionProcess): bool =
   when defined(windows):
-    import winlean
     let handle = openProcess(SYNCHRONIZE, 0, p.int.DWORD)
     if handle == 0:
       return false  # Process doesn't exist or no permission
