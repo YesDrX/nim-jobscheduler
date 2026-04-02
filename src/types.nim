@@ -314,6 +314,7 @@ type
     db*: DbConn
     ch*: ptr DbChannel
     monitorChan*: ptr SchedulerMonitorChannel
+    cfg*: Config
 
   WebServer* = ref object
     dbChan*: ptr DbChannel
@@ -357,11 +358,12 @@ proc newExecutor*(dbChan: ptr DbChannel, schedulerChan: ptr SchedulerChannel,
   result.cfg = cfg
 
 proc newDbWorker*(dbPath: string, ch: ptr DbChannel,
-    monitorChan: ptr SchedulerMonitorChannel): DbWorker =
+    monitorChan: ptr SchedulerMonitorChannel, cfg: Config): DbWorker =
   new(result)
   result.db = open(dbPath, "", "", "")
   result.ch = ch
   result.monitorChan = monitorChan
+  result.cfg = cfg
 
 proc newWebServer*(dbChan: ptr DbChannel, schedulerChan: ptr SchedulerChannel,
     executorChan: ptr ExecutorChannel, monitorChan: ptr SchedulerMonitorChannel,

@@ -341,6 +341,11 @@ proc cancelExecution*(executor: Executor, executionId: int) =
         let p = execTuple.p
         if p.int > 0 and p.isRunning():
             p.terminate()
+            executor.monitorChan[].send(SchedulerMonitorSignal(
+                kind: smmAlert,
+                messageTitle: "Execution cancelled: " & execTuple.task.name & " " & execTuple.execution.jobName,
+                message: "Execution " & $executionId & " cancelled by user"
+            ))
 
         executor.cleanupScripts(execTuple.execution, execTuple.task)
 

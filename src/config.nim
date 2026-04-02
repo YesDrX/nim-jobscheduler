@@ -26,7 +26,8 @@ type
     defaultKeyPath*: string
 
   InternalConfig* = object
-    logRetentionDays*: int
+    logRetentionDays*: int = 7
+    maxExecutionsByJob*: int = 20
 
   AuthConfig* = object
     username*: string

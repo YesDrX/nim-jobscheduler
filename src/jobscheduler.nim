@@ -51,7 +51,7 @@ proc start(config = DefaultConfigPath) =
 
   # 3. Database Actor
   let dbPath = cfg.database.path
-  let dbWorker = newDbWorker(dbPath, dbChan.addr, monitorChan.addr)
+  let dbWorker = newDbWorker(dbPath, dbChan.addr, monitorChan.addr, cfg)
   dbWorker.db.initDb()
   dbWorker.db.setUpInitialUser(cfg.auth.username,
       cfg.auth.password.encryptPassword)

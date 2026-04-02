@@ -1,9 +1,10 @@
 import std/[asyncdispatch, strutils, json, times, os, uri,
-    sequtils, asynchttpserver, tables, options]
+    sequtils, asynchttpserver, tables, options, strformat]
 
 when defined(posix):
   import posix
 
+import db_connector/db_sqlite
 import ./auth
 import ../[database, orm, types, config, utils, serialize]
 import ../webui/views
@@ -288,8 +289,16 @@ proc runWebServer*(webServer: WebServer) =
       let whereClause = if conditions.len > 0: conditions.join(
           " AND ") else: "1=1"
 
-      let execs = queryRowsExecution(db, whereClause &
-          " ORDER BY startTime DESC LIMIT " & $limit & " OFFSET " & $offset)
+      let rows = db.getAllRows(sql("""
+      With Page AS (
+        SELECT * FROM ExecutionTable
+        LIMIT ? OFFSET ?
+      )
+      SELECT * FROM Page
+      WHERE """ & whereClause & """
+      ORDER BY startTime DESC
+      """), limit, offset)
+      let execs = rows.mapIt((it[0].parseInt, it.dbRowToObj[:Execution]))
       let countStr = db.getValue(sql("SELECT COUNT(*) FROM ExecutionTable WHERE " & whereClause))
       let total = if countStr == "": 0 else: parseInt(countStr)
       let totalPages = (total + limit - 1) div limit
@@ -306,7 +315,13 @@ proc runWebServer*(webServer: WebServer) =
         await resp404(req, "Job not found")
         return
       let job = jobOpt.get()
-      let executions = queryRowsExecution(db, "jobId = " & $jobId & " ORDER BY startTime DESC")
+      let taskOpt = getTaskById(db, job.data.taskId)
+      if taskOpt.isNone:
+        await resp404(req, "Task not found")
+        return
+      let task = taskOpt.get()
+      let executions = queryRowsExecution(db,
+          fmt"""jobId = {jobId} OR (taskName = '{task.data.name.serialize()}' AND jobName = '{job.data.name.serialize()}') ORDER BY startTime DESC""")
       await respHtml(req, renderJobHistory(jobId, job.data.name, executions))
       return
 
