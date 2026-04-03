@@ -92,7 +92,7 @@
         if (!confirm('Are you sure you want to cancel this job?')) return;
         try {
             await fetch(`/api/cancel_execution?id=${execId}`, { method: 'POST' });
-            loadDashboard();
+            window.location.reload();
         } catch (e) { console.error(e); alert('Failed to cancel job'); }
     }
 
@@ -105,7 +105,7 @@
             });
 
             if (response.ok) {
-                loadDashboard(paginationInfo.page);
+                window.location.reload();
             } else {
                 alert('Failed to delete execution');
             }

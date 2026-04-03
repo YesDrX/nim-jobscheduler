@@ -189,7 +189,8 @@
             try {
                 const response = await fetch(`/api/trigger_task?id=${taskId}`, { method: 'POST' });
                 if (response.ok) {
-                    alert('Task triggered successfully');
+                    console.log('Task triggered successfully');
+                    window.location.reload();
                 } else {
                     const data = await response.json();
                     alert('Failed to trigger task: ' + (data.error || 'Unknown error'));
@@ -204,7 +205,8 @@
         showConfirmModal('Trigger Job', 'Trigger this job now?', async () => {
             try {
                 await fetch(`/api/trigger_job?id=${jobId}`, { method: 'POST' });
-                alert('Job triggered successfully');
+                console.log('Job triggered successfully');
+                window.location.href = '/job_history?id=' + jobId;
             } catch (error) {
                 alert('Failed to trigger job: ' + error);
             }

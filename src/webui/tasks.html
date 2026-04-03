@@ -189,7 +189,8 @@
             try {
                 const response = await fetch(`/api/trigger_task?id=${taskId}`, { method: 'POST' });
                 if (response.ok) {
-                    alert('Task triggered successfully');
+                    console.log('Task triggered successfully');
+                    window.location.href = '/task_detail?id=' + taskId;
                 } else {
                     const data = await response.json();
                     alert('Failed to trigger task: ' + (data.error || 'Unknown error'));

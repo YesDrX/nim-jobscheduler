@@ -205,25 +205,27 @@ proc runDbWorker*(dbWorker: DbWorker) =
             msg.deleteTokensUserId)
 
       of dbCleanupExecutions:
+        debug "Cleaning up executions ..."
+        debug "Total executions before dropping old ones: " & $db.getAllRows(sql"SELECT COUNT(_dbID) FROM ExecutionTable")
         let refTime = (now() - dbWorker.cfg.internal.logRetentionDays.days).toTime().toUnix()
-        db.exec(sql"DELETE FROM ExecutionTable WHERE _dbTimestamp < ? AND status != ?",
-            refTime, serialize("Running"))
-        db.exec(sql"""
+        db.exec(sql("DELETE FROM ExecutionTable WHERE _dbTimestamp < " &
+            $refTime & " AND status != ?"), serialize(esRunning))
+        debug "Total executions after dropping ones order than " & $refTime &
+            " (" & $dbWorker.cfg.internal.logRetentionDays & " days): " &
+                $db.getAllRows(sql"SELECT COUNT(_dbID) FROM ExecutionTable")
+        db.exec(sql("""
             DELETE FROM ExecutionTable
             WHERE status != ?
             AND _dbID NOT IN (
-                SELECT _dbID
-                FROM (
-                    SELECT _dbID,
-                          ROW_NUMBER() OVER (
-                              PARTITION BY jobId 
-                              ORDER BY _dbTimestamp DESC
-                          ) as rank
-                    FROM ExecutionTable
-                )
-                WHERE rank <= ?
-            )
-        """, serialize("Running"), dbWorker.cfg.internal.maxExecutionsByJob)
+                SELECT _dbId FROM (
+                    SELECT _dbID, row_number() over (
+                      PARTITION by jobId ORDER BY _dbTimestamp DESC
+                    ) as row
+                    FROM ExecutionTable)
+                WHERE row <= """ & $dbWorker.cfg.internal.maxExecutionsByJob &
+            ")"), serialize(esRunning))
+        debug "Total executions after dropping old ones by Job: " &
+            $db.getAllRows(sql"SELECT COUNT(_dbID) FROM ExecutionTable")
 
     except Exception as e:
       error "Error in db worker: " & getCurrentExceptionMsg()

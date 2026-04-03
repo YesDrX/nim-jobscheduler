@@ -107,7 +107,7 @@ proc runSchedulerMonitor*(s: SchedulerMonitor) {.gcsafe.} =
         s.lastTasksScanTime = referenceNowTime
 
       if not s.lastExecutionsCleanupTime.isInitialized or (referenceNowTime -
-          s.lastExecutionsCleanupTime).inDays > 1:
+          s.lastExecutionsCleanupTime).inHours > 1:
         s.dbChan[].send(DbMessage(kind: dbCleanupExecutions))
         s.lastExecutionsCleanupTime = referenceNowTime
 

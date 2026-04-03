@@ -1,4 +1,4 @@
-import std/[tables, sequtils, os, osproc, times, strutils]
+import std/[tables, sequtils, os, times, strutils]
 import ./[types, database, orm, utils]
 
 when not defined(windows):

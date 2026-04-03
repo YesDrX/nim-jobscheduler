@@ -54,6 +54,7 @@ proc deserializeJson*[T](val: JsonNode): T =
                 value = deserializeJson[type(value)](val[key])
         return result
     elif T is object:
+        result = default(T)
         for key, value in result.fieldPairs:
             if key in val:
                 value = deserializeJson[type(value)](val[key])
@@ -242,13 +243,13 @@ proc toYamlString*[T](val: T, indent: int = 0): string =
     elif T is object:
         result &= "\n"
         for fld, value in val.fieldPairs:
-            if value != default(typeof(value)):
+            if (typeof(value) is not string) or (value != default(typeof(value))):
                 result &= getIndention(indent) & $fld & ": " & toYamlString(
                         value, indent + 1) & "\n"
     elif T is ref object:
         result &= "\n"
         for fld, value in val[].fieldPairs:
-            if value != default(typeof(value)):
+            if (typeof(value) is not string) or (value != default(typeof(value))):
                 result &= getIndention(indent) & $fld & ": " & toYamlString(
                         value, indent + 1) & "\n"
     else:
