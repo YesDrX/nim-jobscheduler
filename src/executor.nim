@@ -3,9 +3,9 @@ import ./[types, database, orm, utils]
 
 when not defined(windows):
   import posix
-  import osproc
 else:
   import winlean
+  import osproc
 
 proc runScript*(scriptPath: string): ExecutionProcess = 
   let fullPath = scriptPath.absolutePath()
