@@ -97,6 +97,7 @@
                 <td>${exec.pid}</td>
                 <td>
                     <a href="/execution_log?id=${executionIds[idx]}" class="btn btn-sm">View Log</a>
+                    <a href="/api/delete_execution?id=${executionIds[idx]}" class="btn btn-danger">Delete</a>
                 </td>
             </tr>
         `).join('');

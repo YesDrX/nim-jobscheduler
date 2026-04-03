@@ -473,8 +473,8 @@ proc runWebServer*(webServer: WebServer) =
         let absPath = absolutePath(execution.logFile)
         warn "Log file not found at: " & absPath
         content = "Log file not found at " & absPath
-      await respJson(req, %*{"content": if not skippedBytes: content else: "...\n" &
-          content, "status": $execution.status, "skippedBytes": skippedBytes})
+      await respJson(req, %*{"content": content, "status": $execution.status,
+          "skippedBytes": skippedBytes})
       return
 
     if path == "/api/download_log" and httpMethod == HttpGet:

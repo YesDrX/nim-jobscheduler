@@ -154,4 +154,4 @@ proc readFile*(filePath: string, maxLen: int): tuple[skippedSomeBytes: bool,
   let skipBytes = max(0, fileSize - maxLen)
   if skipBytes >= fileSize: return (false, "")
   f.setFilePos(skipBytes)
-  return (skipBytes > 0, f.readAll())
+  return (skipBytes > 0, if skipBytes > 0: "...\n" & f.readAll() else: f.readAll())

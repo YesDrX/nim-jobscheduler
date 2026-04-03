@@ -24,6 +24,7 @@
         <table id="tasks-table">
             <thead>
                 <tr>
+                    <th>ID</th>
                     <th>Name</th>
                     <th>Description</th>
                     <th>Type</th>
@@ -34,7 +35,7 @@
             </thead>
             <tbody id="tasks-body">
                 <tr>
-                    <td colspan="5" class="loading">Loading...</td>
+                    <td colspan="6" class="loading">Loading...</td>
                 </tr>
             </tbody>
         </table>
@@ -154,6 +155,7 @@
         } else {
             taskHtml = visibleTasks.map((task, idx) => `
             <tr>
+                <td> ${task.id} </td>
                 <td>
                     <div style="display:flex; align-items:center; gap: 5px;">
                         <a href="/task_detail?id=${task.id}" class="link" onclick="event.stopPropagation()">${task.name}</a>

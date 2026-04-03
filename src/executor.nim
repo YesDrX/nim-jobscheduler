@@ -402,9 +402,9 @@ proc checkLiveExecutions*(executor: Executor) =
                         "Task: " & pair.task.name & "\n" &
                         "Job: " & pair.execution.jobName & "\n" &
                         "Status: " & $status & "\n" &
-                        "Log: \n"
+                        "\nJob Log: \n"
                 if fileExists(pair.execution.logFile):
-                    let logContent = readFile(pair.execution.logFile)
+                    let (skippedBytes, logContent) = readFile(pair.execution.logFile, maxLen = 1024 * 8)
                     messageContent &= logContent
 
                 executor.monitorChan[].send(SchedulerMonitorSignal(

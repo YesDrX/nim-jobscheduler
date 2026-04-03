@@ -59,7 +59,7 @@ a:hover {
 }
 
 .container {
-    max-width: 1400px;
+    max-width: 1600px;
     margin: 0 auto;
     padding: 0 0.25rem;
 }
@@ -69,7 +69,7 @@ a:hover {
     background: var(--bg);
     border-bottom: 1px solid var(--border);
     padding: 0.75rem 0;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .navbar .container {
@@ -130,7 +130,7 @@ main {
     background: var(--bg-card);
     padding: 1.5rem;
     border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     border-left: 4px solid var(--primary);
 }
 
@@ -164,7 +164,7 @@ main {
     background: var(--bg-card);
     padding: 1rem;
     border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     margin-bottom: 1.5rem;
 }
 
@@ -203,7 +203,9 @@ tbody tr:hover {
     background: var(--light);
 }
 
-.loading, .no-data, .error {
+.loading,
+.no-data,
+.error {
     text-align: center;
     padding: 2rem;
     color: #6b7280;
@@ -345,11 +347,23 @@ footer {
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
 }
 
 @keyframes slideUp {
-    from { transform: translateY(20px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
 }

@@ -17,6 +17,7 @@
     <div class="section">
         <h3>Task Information</h3>
         <dl class="details">
+            <dt>ID</dt>
             <dt>Name</dt>
             <dd id="task-name">-</dd>
             <dt>Description</dt>
@@ -147,6 +148,7 @@
         // Removed Schedule column
         tbody.innerHTML = jobs.map((job, idx) => `
         <tr>
+            <td>${jobIds[idx]}</td>
             <td>${job.name}</td>
             <td><code>${job.command}</code></td>
             <td class="actions-cell">
