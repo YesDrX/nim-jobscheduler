@@ -39,26 +39,6 @@ async function apiCall(url, options = {}) {
     return response;
 }
 
-// SSE log streaming
-function streamLog(execId, targetElement) {
-    const eventSource = new EventSource(`/api/stream_execution_log?id=${execId}`);
-
-    eventSource.onmessage = (event) => {
-        if (targetElement) {
-            targetElement.textContent += event.data;
-            if (window.autoScroll) {
-                targetElement.scrollTop = targetElement.scrollHeight;
-            }
-        }
-    };
-
-    eventSource.onerror = () => {
-        eventSource.close();
-    };
-
-    return eventSource;
-}
-
 // Modal Logic
 const modalState = {
     onConfirm: null,

@@ -31,6 +31,7 @@
 <script>
     const execId = {{ execId }};
     const execution = {{ executionJson }};
+    const maxLogLength = 1024 * 4;
 
     let autoScroll = true;
     let pollInterval = null;
@@ -66,11 +67,11 @@
 
     async function loadLogContent(stopPollingWhenDone) {
         try {
-            const response = await fetch(`/api/execution_log?id=${execId}`, { method: 'POST' });
+            const response = await fetch(`/api/execution_log?id=${execId}&maxLen=${maxLogLength}`, { method: 'POST' });
             if (!response.ok) throw new Error("Failed to load log");
             const content = await response.json();
             const el = document.getElementById('log-content');
-            el.textContent = content.content || 'No log content available';
+            el.textContent = '\n' + (content.content || 'No log content available');
             Prism.highlightElement(el);
             scrollToBottom();
 

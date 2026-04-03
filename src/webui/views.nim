@@ -83,8 +83,7 @@ proc renderExecutions*(executions: seq[tuple[dbId: int, data: Execution]],
   let executionIdsJson = $(%*(executions.mapIt(it.dbId)))
   compileTemplateFile("executions.html", baseDir = currentSourcePath.parentDir)
 
-proc renderLogViewer*(execId: int, execution: Execution,
-    logContent: string): string =
+proc renderLogViewer*(execId: int, execution: Execution): string =
   let page = "executions"
   let executionJson = $(%*execution)
   compileTemplateFile("log_viewer.html", baseDir = currentSourcePath.parentDir)

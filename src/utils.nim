@@ -142,3 +142,16 @@ proc sanitizeFileName*(name: string): string =
   for ch in {',', ':', ';', '*', '[', ']', '(', ')', '{', '}', '|', '?', '"',
       '<', '>'}:
     result = result.replace(ch, '_')
+
+proc readFile*(filePath: string, maxLen: int): tuple[skippedSomeBytes: bool,
+    content: string] =
+  if not fileExists(filePath): return (false, "")
+  var f: File
+  if not open(f, filePath):
+    raise newException(IOError, "Could not open file: " & filePath)
+  defer: close(f)
+  let fileSize = f.getFileSize()
+  let skipBytes = max(0, fileSize - maxLen)
+  if skipBytes >= fileSize: return (false, "")
+  f.setFilePos(skipBytes)
+  return (skipBytes > 0, f.readAll())
