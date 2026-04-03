@@ -3,6 +3,7 @@ import ./[types, database, orm, utils]
 
 when not defined(windows):
   import posix
+  import osproc
 else:
   import winlean
 
