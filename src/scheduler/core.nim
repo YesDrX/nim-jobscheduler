@@ -82,10 +82,12 @@ proc startScheduler*(s: Scheduler) =
           s.refreshSchedule()
         of ssPrintSchedule:
           info "Reference Time: " & $referenceNowTime
-          info "Task Schedule: " & $s.taskSchedule
+          info "Task Schedule: " & s.taskSchedule.mapIt($it.triggerTime & ": " & it.taskName).
+            join("\n") & "\n==================="
 
       if not s.lastScheduleRefreshTime.isInitialized or (referenceNowTime -
           s.lastScheduleRefreshTime > initDuration(hours = 6)):
+        s.reloadSchedulerTasks()
         s.refreshSchedule()
 
       # Execute tasks
