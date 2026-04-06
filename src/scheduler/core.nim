@@ -1,4 +1,4 @@
-import std/[tables, times, options, sequtils, os, algorithm]
+import std/[tables, times, options, sequtils, os, algorithm, strutils]
 import ./[triggers]
 import ../[database, orm, config, types, utils]
 
