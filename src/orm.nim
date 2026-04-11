@@ -128,7 +128,14 @@ proc runDbWorker*(dbWorker: DbWorker) =
 
       of dbUpdateUserPassword:
         db.exec(sql"UPDATE UserTable SET passwordHash = ? WHERE _dbID = ?",
-            msg.newPasswordHash, msg.updateUserId)
+            msg.newPasswordHash.serialize(), msg.updateUserId)
+        if msg.newPasswordEmail != "":
+          info "Updating user " & $msg.updateUserId & " email: " &
+              msg.newPasswordEmail
+          db.exec(sql"UPDATE UserTable SET email = ? WHERE _dbID = ?",
+              msg.newPasswordEmail.serialize(), msg.updateUserId)
+        db.exec(sql"UPDATE UserTable SET updatedAt = ? WHERE _dbID = ?",
+            now().serialize(), msg.updateUserId)
 
       of dbDeleteUser:
         db.deleteRowUser(msg.deleteUserId)

@@ -170,6 +170,7 @@ type
     of dbUpdateUserPassword:
       updateUserId*: int
       newPasswordHash*: string
+      newPasswordEmail*: string
     of dbDeleteUser:
       deleteUserId*: int
 

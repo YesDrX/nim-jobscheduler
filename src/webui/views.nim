@@ -83,7 +83,7 @@ proc renderExecutions*(executions: seq[tuple[dbId: int, data: Execution]],
   let executionIdsJson = $(%*(executions.mapIt(it.dbId)))
   compileTemplateFile("executions.html", baseDir = currentSourcePath.parentDir)
 
-proc renderLogViewer*(execId: int, execution: Execution): string =
+proc renderLogViewer*(execId: int, execution: Execution, maxLen: int): string =
   let page = "executions"
   let executionJson = $(%*execution)
   compileTemplateFile("log_viewer.html", baseDir = currentSourcePath.parentDir)
@@ -97,9 +97,12 @@ proc renderLogin*(): string =
   let page = ""
   compileTemplateFile("login.html", baseDir = currentSourcePath.parentDir)
 
-proc renderUsers*(users: seq[tuple[dbId: int, data: User]]): string =
+proc renderUsers*(userId: int, user: User, users: seq[tuple[dbId: int,
+    data: User]]): string =
   let page = "users"
-  let usersJson = $(%*(users.mapIt(it.data)))
+  let usersJson = $(%*(users.mapIt(User(username: it.data.username,
+      email: it.data.email, createdAt: it.data.createdAt,
+      updatedAt: it.data.updatedAt))))
   let userIdsJson = $(%*(users.mapIt(it.dbId)))
   compileTemplateFile("users.html", baseDir = currentSourcePath.parentDir)
 

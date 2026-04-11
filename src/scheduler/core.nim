@@ -82,7 +82,8 @@ proc startScheduler*(s: Scheduler) =
           s.refreshSchedule()
         of ssPrintSchedule:
           info "Reference Time: " & $referenceNowTime
-          info "Task Schedule: " & s.taskSchedule.mapIt($it.triggerTime & ": " & it.taskName).
+          info "\n===================\nTask Schedule: " & s.taskSchedule.mapIt(
+              $it.triggerTime & ": " & it.taskName).
             join("\n") & "\n==================="
 
       if not s.lastScheduleRefreshTime.isInitialized or (referenceNowTime -

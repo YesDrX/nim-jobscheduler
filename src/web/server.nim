@@ -292,12 +292,13 @@ proc runWebServer*(webServer: WebServer) =
       let rows = db.getAllRows(sql("""
       With Page AS (
         SELECT * FROM ExecutionTable
-        LIMIT ? OFFSET ?
+        LIMIT """ & $limit & " OFFSET " & $offset &
+          """
       )
       SELECT * FROM Page
       WHERE """ & whereClause & """
       ORDER BY startTime DESC
-      """), limit, offset)
+      """))
       let execs = rows.mapIt((it[0].parseInt, it.dbRowToObj[:Execution]))
       let countStr = db.getValue(sql("SELECT COUNT(*) FROM ExecutionTable WHERE " & whereClause))
       let total = if countStr == "": 0 else: parseInt(countStr)
@@ -328,19 +329,21 @@ proc runWebServer*(webServer: WebServer) =
     # --- Execution Log ---
     if path == "/execution_log" and httpMethod == HttpGet:
       let queryJson = req.url.query.decodeQueryAsTable()
+      let maxLen = queryJson.getOrDefault("maxLen", "16384").parseInt
       let execId = queryJson.getOrDefault("id", "-1").parseInt
       let execs = queryRowsExecution(db, "_dbID = " & $execId)
       if execs.len == 0:
         await resp404(req, "Execution not found")
         return
       let exec = execs[0].data
-      await respHtml(req, renderLogViewer(execId, exec))
+      await respHtml(req, renderLogViewer(execId, exec, maxLen))
       return
 
     # --- Users Page ---
     if path == "/users" and httpMethod == HttpGet:
+      let user = getUserById(db, userId).get().data
       let users = getAllUsers(db)
-      await respHtml(req, renderUsers(users))
+      await respHtml(req, renderUsers(userId, user, users))
       return
 
     # --- Tokens Page ---
@@ -459,7 +462,7 @@ proc runWebServer*(webServer: WebServer) =
     if path == "/api/execution_log" and httpMethod == HttpPost:
       let queryJson = decodeQueryAsTable(req.url.query)
       let id = queryJson.getOrDefault("id", "-1").parseInt
-      let maxLen = queryJson.getOrDefault("maxLen", "4096").parseInt
+      let maxLen = queryJson.getOrDefault("maxLen", "16384").parseInt
       let execs = queryRowsExecution(db, "_dbID = " & $id)
       if execs.len == 0:
         await resp404(req, "Execution not found")
@@ -613,10 +616,11 @@ proc runWebServer*(webServer: WebServer) =
     ## -- API: update user password ---
     if path == "/api/update_user_password" and httpMethod == HttpPost:
       let dataJson = req.body.parseJson()
-      let id = dataJson["userId"].getInt()
+      let id = dataJson["userId"].`$`.strip(chars = {'"'}).parseInt()
       let password = dataJson["password"].getStr
+      let email = dataJson["email"].getStr
       dbChan[].send(DbMessage(kind: dbUpdateUserPassword, updateUserId: id,
-          newPasswordHash: password.encryptPassword))
+          newPasswordHash: password.encryptPassword, newPasswordEmail: email))
       await respJson(req, %*{"status": "ok"})
       return
 

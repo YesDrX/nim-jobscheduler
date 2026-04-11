@@ -18,12 +18,13 @@
                     <th>Username</th>
                     <th>Email</th>
                     <th>Created</th>
+                    <th>Updated</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="users-body">
                 <tr>
-                    <td colspan="5" class="loading">Loading...</td>
+                    <td colspan="6" class="loading">Loading...</td>
                 </tr>
             </tbody>
         </table>
@@ -71,6 +72,10 @@
                 <label>Confirm Password</label>
                 <input type="password" id="change-password-confirm" required>
             </div>
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="change-email">
+            </div>
             <div class="btn-group">
                 <button type="submit" class="btn">Update</button>
                 <button type="button" onclick="hidePasswordModal()" class="btn btn-secondary">Cancel</button>
@@ -98,6 +103,7 @@
             <td>${user.username}</td>
             <td>${user.email || '-'}</td>
             <td>${formatTime(user.createdAt)}</td>
+            <td>${formatTime(user.updatedAt)}</td>
             <td>
                 <button onclick="showChangePassword(${userIds[index]})" class="btn btn-sm">Change Password</button>
                 <button onclick="deleteUser(${userIds[index]})" class="btn btn-sm btn-danger">Delete</button>
@@ -115,7 +121,9 @@
     }
 
     function showChangePassword(userId) {
+        const userIdx = userIds.indexOf(userId);
         document.getElementById('change-user-id').value = userId;
+        document.getElementById('change-email').value = users[userIdx].email;
         document.getElementById('change-password-modal').style.display = 'flex';
     }
 
@@ -159,6 +167,7 @@
         e.preventDefault();
         const password = document.getElementById('change-password').value;
         const confirm = document.getElementById('change-password-confirm').value;
+        const email = document.getElementById('change-email').value;
 
         if (password !== confirm) {
             alert('Passwords do not match');
@@ -166,11 +175,12 @@
         }
 
         const userId = document.getElementById('change-user-id').value;
+        console.log('Updating user:', userId);
         try {
             const response = await fetch(`/api/update_user_password`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: password, userId: userId })
+                body: JSON.stringify({ password: password, userId: userId, email: email })
             });
 
             if (response.ok) {
