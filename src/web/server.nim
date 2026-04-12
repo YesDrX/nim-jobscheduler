@@ -79,10 +79,12 @@ proc isAuthenticated(req: Request, sessions: Table[string, int]): int =
   if req.headers.hasKey("authorization"):
     let authHeaders = req.headers.table.getOrDefault("authorization", @[])
     for authHeader in authHeaders:
-      if authHeader.startsWith("Bearer ") and authHeader.len > 7:
-        let token = authHeader[7..^1]
-        if sessions.hasKey(token):
-          return sessions[token]
+      if authHeader.startsWith("Bearer "):
+        debug "Authorization header: " & authHeader
+        if authHeader.len > 7:
+          let token = authHeader[7..^1]
+          if sessions.hasKey(token):
+            return sessions[token]
 
   # Check for session cookie
   let token = getTokenFromCookie(req)
