@@ -3,6 +3,7 @@ import ./[types, database, orm, utils]
 
 when not defined(windows):
   import posix
+  import osproc
 else:
   import winlean
   import osproc
@@ -29,6 +30,15 @@ proc runScript*(scriptPath: string): ExecutionProcess =
       discard execv(fullPath.cstring, nil.cstringArray)
     else:
       return pid.ExecutionProcess
+
+  # when defined(windows):
+  #   let p = startProcess("cmd.exe", args = ["/c", fullPath], 
+  #                        options = {poDaemon, poParentStreams})
+  #   return p.processID().ExecutionProcess
+  # else:
+  #   let p = startProcess(fullPath, 
+  #                        options = {poDaemon, poParentStreams})
+  #   return p.processID().ExecutionProcess
 
 proc isRunning*(p: ExecutionProcess): bool =
   when defined(windows):
@@ -94,8 +104,11 @@ proc terminate*(p: ExecutionProcess) =
     if handle == 0:
       return
     defer: discard closeHandle(handle)
-    discard terminateProcess(handle, 1)
-
+    let cmd = "taskkill /F /T /PID " & $p.int
+    let res = execCmd(cmd)
+    if res != 0:
+      warn "Failed to terminate process on windows: " & $p.int
+  
   else:
     # First attempt graceful shutdown via SIGTERM
     let termRes = kill(p.Pid, SIGTERM)
@@ -193,12 +206,15 @@ proc runRemoteCommand*(
             ".sh").sanitizeFileName
     
     let jobCommandFile = logDir / (dt & "_cmd.sh")
-    let cmdScriptContent = "#!/bin/bash\n" & job.command & "\n"
+    let cmdScriptContent = "#!/bin/bash\n" &
+                           "trap 'kill -TERM 0' EXIT HUP INT TERM\n" & 
+                           job.command & " &\n" & # <-- Run in background
+                           "wait $!\n"            # <-- Wait for it (interruptible)
     writeFile(jobCommandFile, cmdScriptContent)
 
     let scpCmd = "scp -q -o StrictHostKeyChecking=no -o BatchMode=yes -P " & $sshPort & " -i \"" & keyPath &
             "\" \"" & jobCommandFile & "\" " & sshUser & "@" & sshHost & ":" & remoteScriptPath
-    let sshCmd = "ssh -o ServerAliveInterval=60 -o StrictHostKeyChecking=no -o BatchMode=yes -p " &
+    let sshCmd = "ssh -tt -o ServerAliveInterval=60 -o StrictHostKeyChecking=no -o BatchMode=yes -p " &
             $sshPort & " -i \"" & keyPath & "\" " & sshUser & "@" & sshHost &
             " \"bash " & remoteScriptPath & "\""
 
@@ -212,9 +228,13 @@ proc runRemoteCommand*(
     else:
         scriptPath = logDir / (dt & "_remote.sh")
         let exitFile = scriptPath & ".exit"
-        let scriptContent = "#!/bin/bash\n" & scpCmd & "\nexec > \"" & logFile &
-                "\" 2>&1\n" & sshCmd & "\n" &
-                "echo $? > \"" & exitFile & "\"\n"
+        let scriptContent = "#!/bin/bash\n" &
+                            "trap 'kill -TERM 0' EXIT HUP INT TERM\n" &
+                            scpCmd & "\n" &
+                            "exec > \"" & logFile & "\" 2>&1\n" &
+                            sshCmd & " &\n" &      # <-- Run local SSH in background
+                            "wait $!\n" &          # <-- Wait for it 
+                            "echo $? > \"" & exitFile & "\"\n"
         writeFile(scriptPath, scriptContent)
         inclFilePermissions(scriptPath, {fpUserExec, fpGroupExec, fpOthersExec})
 
@@ -235,6 +255,7 @@ proc runRemoteCommand*(
         remoteScriptFilename: remoteScriptPath,
         manualTriggered: manualTriggered,
         exitCodeFilename: exitFile,
+        jobCommandFile: jobCommandFile,
         remoteSshHost: sshHost,
         remoteSshPort: sshPort,
         remoteSshUser: sshUser,
@@ -253,6 +274,11 @@ proc cleanupScripts*(executor: Executor, execution: Execution, task: Task) =
         discard execShellCmd(rmCmd)
       except:
         debug "Failed to remove remote script file: " & execution.remoteScriptFilename & " from host " & execution.remoteSshHost
+  
+  if fileExists(execution.jobCommandFile):
+    debug "Removing job command file: " & execution.jobCommandFile
+    try: removeFile(execution.jobCommandFile)
+    except OSError: discard
 
   if fileExists(execution.scriptFilename):
     debug "Removing script file: " & execution.scriptFilename

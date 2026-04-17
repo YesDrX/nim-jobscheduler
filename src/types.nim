@@ -104,6 +104,7 @@ type
     scriptFilename*: string
     remoteScriptFilename*: string
     exitCodeFilename*: string
+    jobCommandFile*: string
     remoteSshHost*: string
     remoteSshPort*: int
     remoteSshUser*: string

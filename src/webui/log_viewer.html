@@ -8,6 +8,7 @@
     <h2>Log Viewer - Execution #{{ execId }}</h2>
     <div class="btn-group">
         <a href="javascript:history.back()" class="btn btn-secondary">← Back</a>
+        <button onclick="viewTask()" class="btn">Task</button>
         <button onclick="downloadLog()" class="btn">Download</button>
         <button onclick="toggleAutoScroll()" class="btn" id="autoscroll-btn">Auto-scroll: ON</button>
     </div>
@@ -39,6 +40,10 @@
     function toggleAutoScroll() {
         autoScroll = !autoScroll;
         document.getElementById('autoscroll-btn').textContent = `Auto-scroll: ${autoScroll ? 'ON' : 'OFF'}`;
+    }
+
+    function viewTask() {
+        window.location.href = `/task_detail?id=${execution.taskId}`;
     }
 
     function downloadLog() {

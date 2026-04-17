@@ -292,15 +292,15 @@ proc runWebServer*(webServer: WebServer) =
           " AND ") else: "1=1"
 
       let rows = db.getAllRows(sql("""
-      With Page AS (
-        SELECT * FROM ExecutionTable
-        LIMIT """ & $limit & " OFFSET " & $offset &
+          SELECT * FROM ExecutionTable
+          WHERE """ & whereClause &
           """
-      )
-      SELECT * FROM Page
-      WHERE """ & whereClause & """
-      ORDER BY startTime DESC
-      """))
+          ORDER BY 
+            CASE WHEN status = '""" & esRunning.serialize() &
+          """' THEN 0 ELSE 1 END ASC,
+            startTime DESC
+          LIMIT """ & $limit & """ OFFSET """ & $offset
+        ))
       let execs = rows.mapIt((it[0].parseInt, it.dbRowToObj[:Execution]))
       let countStr = db.getValue(sql("SELECT COUNT(*) FROM ExecutionTable WHERE " & whereClause))
       let total = if countStr == "": 0 else: parseInt(countStr)
