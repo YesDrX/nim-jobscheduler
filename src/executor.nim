@@ -108,7 +108,7 @@ proc terminate*(p: ExecutionProcess) =
     let res = execCmd(cmd)
     if res != 0:
       warn "Failed to terminate process on windows: " & $p.int
-  
+
   else:
     # First attempt graceful shutdown via SIGTERM
     let termRes = kill(p.Pid, SIGTERM)
@@ -208,8 +208,11 @@ proc runRemoteCommand*(
     let jobCommandFile = logDir / (dt & "_cmd.sh")
     let cmdScriptContent = "#!/bin/bash\n" &
                            "trap 'kill -TERM 0' EXIT HUP INT TERM\n" & 
-                           job.command & " &\n" & # <-- Run in background
-                           "wait $!\n"            # <-- Wait for it (interruptible)
+                           job.command & " &\n" &
+                           "wait $!\n" &
+                           "ERR=$?\n" &                   # <-- 1. Save the real exit code
+                           "trap - EXIT HUP INT TERM\n" & # <-- 2. DISARM THE TRAP
+                           "exit $ERR\n"                  # <-- 3. Exit with the real code
     writeFile(jobCommandFile, cmdScriptContent)
 
     let scpCmd = "scp -q -o StrictHostKeyChecking=no -o BatchMode=yes -P " & $sshPort & " -i \"" & keyPath &
@@ -232,9 +235,12 @@ proc runRemoteCommand*(
                             "trap 'kill -TERM 0' EXIT HUP INT TERM\n" &
                             scpCmd & "\n" &
                             "exec > \"" & logFile & "\" 2>&1\n" &
-                            sshCmd & " &\n" &      # <-- Run local SSH in background
-                            "wait $!\n" &          # <-- Wait for it 
-                            "echo $? > \"" & exitFile & "\"\n"
+                            sshCmd & " &\n" &      
+                            "wait $!\n" &          
+                            "ERR=$?\n" &                   # <-- 1. Save the real exit code
+                            "trap - EXIT HUP INT TERM\n" & # <-- 2. DISARM THE TRAP
+                            "echo $ERR > \"" & exitFile & "\"\n" & 
+                            "exit $ERR\n"                  # <-- 3. Exit safely
         writeFile(scriptPath, scriptContent)
         inclFilePermissions(scriptPath, {fpUserExec, fpGroupExec, fpOthersExec})
 
