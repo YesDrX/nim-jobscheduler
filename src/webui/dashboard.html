@@ -60,11 +60,15 @@
             <option value="Running">Running</option>
             <option value="Scheduled">Scheduled</option>
         </select>
+        <button id="delete-selected-btn" class="btn btn-danger btn-sm" style="display:none" onclick="deleteSelected()">
+            Delete Selected (<span id="selected-count">0</span>)
+        </button>
     </div>
     <div class="table-container">
         <table id="executions-table">
             <thead>
                 <tr>
+                    <th style="width:1%"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" title="Select all on this page"></th>
                     <th>ID</th>
                     <th>Task</th>
                     <th>Job</th>
@@ -76,7 +80,7 @@
             </thead>
             <tbody id="executions-body">
                 <tr>
-                    <td colspan="7" class="loading">Loading...</td>
+                    <td colspan="8" class="loading">Loading...</td>
                 </tr>
             </tbody>
         </table>
@@ -99,6 +103,7 @@
     let filteredExecutions = allExecutions.slice();
     const PAGE_LIMIT = 50;
     let currentPage = 1;
+    let selectedIds = new Set();
     let runningExecutions = allExecutions.filter(execution => execution.status == 'Running');
 
     async function cancelJob(execId) {
@@ -126,6 +131,69 @@
         });
     }
 
+    async function deleteSelected() {
+        const ids = Array.from(selectedIds);
+        if (ids.length === 0) return;
+        showConfirmModal('Delete Executions', `Are you sure you want to delete ${ids.length} selected execution(s) and their logs?`, async () => {
+            try {
+                const response = await fetch('/api/delete_executions', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ids: ids})
+                });
+                if (response.ok) {
+                    window.location.reload();
+                } else {
+                    alert('Failed to delete executions');
+                }
+            } catch (error) {
+                console.error('Error deleting executions:', error);
+                alert('Error deleting executions');
+            }
+        });
+    }
+
+    function toggleSelectAll(checkbox) {
+        const start = (currentPage - 1) * PAGE_LIMIT;
+        const pageItems = filteredExecutions.slice(start, start + PAGE_LIMIT);
+        if (checkbox.checked) {
+            pageItems.forEach(exec => selectedIds.add(exec.executionId));
+        } else {
+            pageItems.forEach(exec => selectedIds.delete(exec.executionId));
+        }
+        updateSelectionUI();
+        renderTable();
+    }
+
+    function toggleSelect(execId, checked) {
+        if (checked) {
+            selectedIds.add(execId);
+        } else {
+            selectedIds.delete(execId);
+        }
+        updateSelectionUI();
+    }
+
+    function updateSelectionUI() {
+        const btn = document.getElementById('delete-selected-btn');
+        const countEl = document.getElementById('selected-count');
+        const selectAll = document.getElementById('select-all');
+        const start = (currentPage - 1) * PAGE_LIMIT;
+        const pageItems = filteredExecutions.slice(start, start + PAGE_LIMIT);
+
+        if (selectedIds.size > 0) {
+            btn.style.display = '';
+            countEl.textContent = selectedIds.size;
+        } else {
+            btn.style.display = 'none';
+        }
+
+        // Update select-all checkbox state
+        const allOnPageSelected = pageItems.length > 0 && pageItems.every(exec => selectedIds.has(exec.executionId));
+        selectAll.checked = allOnPageSelected;
+        selectAll.indeterminate = !allOnPageSelected && pageItems.some(exec => selectedIds.has(exec.executionId));
+    }
+
     function applyFilter() {
         const searchTerm = document.getElementById('name-search').value.toLowerCase();
         const statusFilter = document.getElementById('status-filter').value;
@@ -145,7 +213,7 @@
     function renderTable() {
         const tbody = document.getElementById('executions-body');
         if (filteredExecutions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="no-data">No executions found</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="no-data">No executions found</td></tr>';
             return;
         }
         const start = (currentPage - 1) * PAGE_LIMIT;
@@ -153,6 +221,7 @@
 
         tbody.innerHTML = pageItems.map(exec => `
         <tr>
+            <td><input type="checkbox" ${selectedIds.has(exec.executionId) ? 'checked' : ''} onchange="toggleSelect(${exec.executionId}, this.checked)"></td>
             <td>${exec.executionId}</td>
             <td><a href="/task_detail?id=${exec.taskId}">${exec.taskName}</a></td>
             <td>${exec.jobName}</td>
@@ -165,6 +234,8 @@
             </td>
         </tr>
     `).join('');
+
+        updateSelectionUI();
     }
 
     function goToPage(page) {
@@ -260,7 +331,7 @@
         } catch (error) {
             console.error('Error loading dashboard:', error);
             document.getElementById('executions-body').innerHTML =
-                '<tr><td colspan="7" class="error">Error loading data</td></tr>';
+                '<tr><td colspan="8" class="error">Error loading data</td></tr>';
         }
     }
 

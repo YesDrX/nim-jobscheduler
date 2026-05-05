@@ -471,7 +471,18 @@ proc runWebServer*(webServer: WebServer) =
       await respFile(req, content, execution.logFile)
       return
 
-    # --- API: delete execution ---
+    # --- API: delete executions (bulk) ---
+    if path.startsWith("/api/delete_executions") and httpMethod == HttpPost:
+      let dataJson = req.body.parseJson()
+      let ids = dataJson["ids"].getElems().mapIt(it.getInt())
+      for id in ids:
+        executorChan[].send(ExecutorSignal(kind: estCancelExecution,
+            cancelExecutionId: id))
+        dbChan[].send(DbMessage(kind: dbDeleteExecution, deleteExecutionId: id))
+      await respJson(req, %*{"status": "ok", "deleted": ids.len})
+      return
+
+    # --- API: delete execution (single) ---
     if path.startsWith("/api/delete_execution") and httpMethod == HttpPost:
       let queryJson = decodeQueryAsTable(req.url.query)
       let id = queryJson.getOrDefault("id", "-1").parseInt
