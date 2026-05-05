@@ -11,15 +11,15 @@
 <div class="section">
     <div class="search-container"
         style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
-        <input type="text" id="job-search" placeholder="Search by job name..." value="{{ search }}"
+        <input type="text" id="job-search" placeholder="Search by job or task name..."
             style="flex: 1; min-width: 200px; max-width: 400px; padding: 0.5rem; border: 1px solid var(--input-border); border-radius: 4px; font-size: 1rem;">
         <select id="status-filter"
             style="padding: 0.5rem; border: 1px solid var(--input-border); border-radius: 4px; font-size: 1rem; background: var(--input-bg); color: var(--text);">
-            <option value="" {% if statusFilter=="" %}selected{% endif %}>All Statuses</option>
-            <option value="Success" {% if statusFilter=="Success" %}selected{% endif %}>Success</option>
-            <option value="Failed" {% if statusFilter=="Failed" %}selected{% endif %}>Failed</option>
-            <option value="Running" {% if statusFilter=="Running" %}selected{% endif %}>Running</option>
-            <option value="Scheduled" {% if statusFilter=="Scheduled" %}selected{% endif %}>Scheduled</option>
+            <option value="">All Statuses</option>
+            <option value="Success">Success</option>
+            <option value="Failed">Failed</option>
+            <option value="Running">Running</option>
+            <option value="Scheduled">Scheduled</option>
         </select>
     </div>
     <div class="table-container">
@@ -38,25 +38,24 @@
             </thead>
             <tbody id="executions-body">
                 <tr>
-                    <td colspan="7" class="loading">Loading...</td>
+                    <td colspan="8" class="loading">Loading...</td>
                 </tr>
             </tbody>
         </table>
     </div>
-    <div id="pagination" class="pagination" data-total="{{ totalExecutions }}"
+    <div id="pagination" class="pagination"
         style="margin-top: 1rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem;"></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    const PAGE_LIMIT = {{ limit }};
+    const PAGE_LIMIT = 50;
     let allExecutions = {{ allExecutionsJson }}.map((exec, idx) => ({
         ...exec,
         executionId: {{ executionIdsJson }}[idx]
     }));
 
-    // filteredExecutions starts as a copy of all; updated on every filter/search change
     let filteredExecutions = allExecutions.slice();
     let currentPage = 1;
 
@@ -85,9 +84,10 @@
         const statusFilter = document.getElementById('status-filter').value;
 
         filteredExecutions = allExecutions.filter(exec => {
-            const matchesJobName = exec.jobName.toLowerCase().includes(searchTerm) || exec.taskName.toLowerCase().includes(searchTerm);
+            const searchable = (exec.jobName || '') + ' ' + (exec.taskName || '');
+            const matchesSearch = !searchTerm || searchable.toLowerCase().includes(searchTerm);
             const matchesStatus = !statusFilter || exec.status === statusFilter;
-            return matchesJobName && matchesStatus;
+            return matchesSearch && matchesStatus;
         });
 
         currentPage = 1;

@@ -75,9 +75,7 @@ proc renderTaskNew*(): string =
   let taskId = -1
   compileTemplateFile("task_edit.html", baseDir = currentSourcePath.parentDir)
 
-proc renderExecutions*(executions: seq[tuple[dbId: int, data: Execution]],
-    limit: int, currentPage: int, totalPages: int, totalExecutions: int,
-    search: string = "", statusFilter: string = ""): string =
+proc renderExecutions*(executions: seq[tuple[dbId: int, data: Execution]]): string =
   let page = "executions"
   let allExecutionsJson = $(%*(executions.mapIt(it.data)))
   let executionIdsJson = $(%*(executions.mapIt(it.dbId)))

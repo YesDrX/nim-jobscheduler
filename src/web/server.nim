@@ -275,38 +275,9 @@ proc runWebServer*(webServer: WebServer) =
 
     # --- Executions Page ---
     if path == "/executions" and httpMethod == HttpGet:
-      let queryJson = req.url.query.decodeQueryAsTable()
-      let page = queryJson.getOrDefault("page", "1").parseInt
-      let limit = queryJson.getOrDefault("limit", "50").parseInt
-      let search = queryJson.getOrDefault("search", "")
-      let statusFilter = queryJson.getOrDefault("status", "")
-      let offset = (page - 1) * limit
-
-      # Build WHERE clause with optional filters
-      var conditions: seq[string] = @[]
-      if search.len > 0:
-        conditions.add("jobName LIKE '%" & search.replace("'", "''") & "%'")
-      if statusFilter.len > 0:
-        conditions.add("status = '" & statusFilter.replace("'", "''") & "'")
-      let whereClause = if conditions.len > 0: conditions.join(
-          " AND ") else: "1=1"
-
-      let rows = db.getAllRows(sql("""
-          SELECT * FROM ExecutionTable
-          WHERE """ & whereClause &
-          """
-          ORDER BY 
-            CASE WHEN status = '""" & esRunning.serialize() &
-          """' THEN 0 ELSE 1 END ASC,
-            startTime DESC
-          LIMIT """ & $limit & """ OFFSET """ & $offset
-        ))
-      let execs = rows.mapIt((it[0].parseInt, it.dbRowToObj[:Execution]))
-      let countStr = db.getValue(sql("SELECT COUNT(*) FROM ExecutionTable WHERE " & whereClause))
-      let total = if countStr == "": 0 else: parseInt(countStr)
-      let totalPages = (total + limit - 1) div limit
-      await respHtml(req, renderExecutions(execs, limit, page, totalPages,
-          total, search, statusFilter))
+      let allExecutions = queryRowsExecution(db, "1=1 ORDER BY CASE WHEN status = '" &
+          esRunning.serialize() & "' THEN 0 ELSE 1 END ASC, startTime DESC")
+      await respHtml(req, renderExecutions(allExecutions))
       return
 
     # --- Job Execution History ---
@@ -501,7 +472,7 @@ proc runWebServer*(webServer: WebServer) =
       return
 
     # --- API: delete execution ---
-    if path == "/api/delete_execution" and httpMethod == HttpPost:
+    if path.startsWith("/api/delete_execution") and httpMethod == HttpPost:
       let queryJson = decodeQueryAsTable(req.url.query)
       let id = queryJson.getOrDefault("id", "-1").parseInt
       executorChan[].send(ExecutorSignal(kind: estCancelExecution,
