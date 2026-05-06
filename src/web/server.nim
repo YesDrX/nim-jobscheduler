@@ -74,7 +74,7 @@ proc getTokenFromCookie(req: Request): string =
             return trimmed[8..^1]
   return ""
 
-proc isAuthenticated(req: Request, sessions: Table[string, int]): int =
+proc isAuthenticated(req: Request, sessions: Table[string, int], db: DbConn): int =
   # Check for Authorization header (Bearer token from API)
   if req.headers.hasKey("authorization"):
     let authHeaders = req.headers.table.getOrDefault("authorization", @[])
@@ -85,6 +85,10 @@ proc isAuthenticated(req: Request, sessions: Table[string, int]): int =
           let token = authHeader[7..^1]
           if sessions.hasKey(token):
             return sessions[token]
+          # Also check DB TokenTable for API tokens
+          let dbTokens = queryRowsToken(db, "token = '" & token.serialize() & "'")
+          if dbTokens.len > 0:
+            return dbTokens[0].data.userId
 
   # Check for session cookie
   let token = getTokenFromCookie(req)
@@ -113,7 +117,7 @@ proc runWebServer*(webServer: WebServer) =
 
     # --- End points without authentication ---
     if path == "/login" and httpMethod == HttpGet:
-      if isAuthenticated(req, sessions) > 0:
+      if isAuthenticated(req, sessions, db) > 0:
         await redirect(req, "/dashboard")
         return
       else:
@@ -160,7 +164,7 @@ proc runWebServer*(webServer: WebServer) =
       return
 
     # -- Other end points need authentication ---
-    let userId = isAuthenticated(req, sessions)
+    let userId = isAuthenticated(req, sessions, db)
     if userId < 0:
       await redirect(req, "/login")
       return

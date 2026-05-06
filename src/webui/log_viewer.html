@@ -165,5 +165,21 @@
     .btn-secondary:hover {
         background: #4b5563;
     }
+
+    @media (max-width: 768px) {
+        .log-info {
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .log-viewer {
+            max-height: 400px;
+        }
+
+        .log-viewer pre {
+            font-size: 0.75rem;
+            padding: 0.5rem;
+        }
+    }
 </style>
 {% endblock %}

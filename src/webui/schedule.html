@@ -223,5 +223,51 @@
         font-size: 0.7rem;
         padding: 0.1rem 0.4rem;
     }
+
+    @media (max-width: 768px) {
+        .timeline-row {
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .timeline-time {
+            width: 100%;
+            font-size: 0.9rem;
+        }
+
+        .timeline-item {
+            flex-wrap: wrap;
+            font-size: 0.9rem;
+        }
+
+        .current-time-divider span {
+            font-size: 0.65rem;
+            padding: 0.15rem 0.5rem;
+            top: -10px;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .schedule-summary-section {
+            padding: 0.75rem;
+        }
+
+        .summary-list li {
+            font-size: 0.85rem;
+        }
+
+        .timeline-time {
+            font-size: 0.8rem;
+        }
+
+        .timeline-item {
+            font-size: 0.8rem;
+            padding: 0.25rem 0.4rem;
+        }
+
+        .badge.mini {
+            font-size: 0.65rem;
+        }
+    }
 </style>
 {% endblock %}

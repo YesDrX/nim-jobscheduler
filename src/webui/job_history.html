@@ -10,10 +10,25 @@
 </div>
 
 <div class="section">
+    <div class="search-container"
+        style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+        <select id="status-filter"
+            style="padding: 0.5rem; border: 1px solid var(--input-border); border-radius: 4px; font-size: 1rem; background: var(--input-bg); color: var(--text);">
+            <option value="">All Statuses</option>
+            <option value="Success">Success</option>
+            <option value="Failed">Failed</option>
+            <option value="Running">Running</option>
+            <option value="Lost">Lost</option>
+        </select>
+        <button id="delete-selected-btn" class="btn btn-danger btn-sm" style="display:none" onclick="deleteSelected()">
+            Delete Selected (<span id="selected-count">0</span>)
+        </button>
+    </div>
     <div class="table-container">
         <table id="history-table">
             <thead>
                 <tr>
+                    <th style="width:1%"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" title="Select all on this page"></th>
                     <th>ID</th>
                     <th>Started</th>
                     <th>Ended</th>
@@ -25,29 +40,36 @@
             </thead>
             <tbody id="history-body">
                 <tr>
-                    <td colspan="7" class="loading">Loading...</td>
+                    <td colspan="8" class="loading">Loading...</td>
                 </tr>
             </tbody>
         </table>
     </div>
+    <div id="pagination" class="pagination"
+        style="margin-top: 1rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem;"></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+    const PAGE_LIMIT = 50;
     const jobId = {{ jobId }};
     const jobName = "{{ jobName }}";
-    const executions = {{ executionsJson }};
-    const executionIds = {{ executionIdsJson }};
+    const executions = {{ executionsJson }}.map((exec, idx) => ({
+        ...exec,
+        executionId: {{ executionIdsJson }}[idx]
+    }));
+    const allExecutions = Array.isArray(executions) ? executions : [];
+
+    let filteredExecutions = allExecutions.slice();
+    let currentPage = 1;
+    let selectedIds = new Set();
 
     function calculateDuration(start, end, status) {
         if (!start) return '-';
         if (!end) return '-';
-
         let endTime = parseTime(end);
         let startTime = parseTime(start);
-
-        // Check for invalid end time (e.g. 1970 epoch or empty)
         if (!end || endTime.getFullYear() <= 1970) {
             if (status === 'Running') {
                 const diff = new Date() - startTime;
@@ -55,7 +77,6 @@
             }
             return '-';
         }
-
         const diff = endTime - startTime;
         return formatDuration(diff);
     }
@@ -65,51 +86,150 @@
         const seconds = Math.floor(ms / 1000);
         const minutes = Math.floor(seconds / 60);
         const hours = Math.floor(minutes / 60);
-
         if (hours > 0) return `${hours}h ${minutes % 60}m`;
         if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
         return `${seconds}s`;
     }
 
-    async function loadHistory() {
-        try {
-            // Ensure executions is always an array
-            if (!Array.isArray(executions)) {
-                console.error('Executions is not an array:', executions);
-                document.getElementById('history-body').innerHTML =
-                    '<tr><td colspan="7" class="error">Error loading history</td></tr>';
-                return;
-            }
+    async function deleteExecution(execId) {
+        showConfirmModal('Delete Execution', 'Are you sure you want to delete this execution and its logs?', async () => {
+            try {
+                const response = await fetch(`/api/delete_execution?id=${execId}`, { method: 'POST' });
+                if (response.ok) { location.reload(); }
+                else { alert('Failed to delete execution'); }
+            } catch (error) { alert('Error deleting execution'); }
+        });
+    }
 
-            const tbody = document.getElementById('history-body');
-            if (executions.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="no-data">No execution history</td></tr>';
-                return;
+    async function deleteSelected() {
+        const ids = Array.from(selectedIds);
+        if (ids.length === 0) return;
+        showConfirmModal('Delete Executions', `Are you sure you want to delete ${ids.length} selected execution(s) and their logs?`, async () => {
+            try {
+                const response = await fetch('/api/delete_executions', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ids: ids})
+                });
+                if (response.ok) { window.location.reload(); }
+                else { alert('Failed to delete executions'); }
+            } catch (error) {
+                console.error('Error deleting executions:', error);
+                alert('Error deleting executions');
             }
+        });
+    }
 
-            tbody.innerHTML = executions.map((exec, idx) => `
+    function toggleSelectAll(checkbox) {
+        const start = (currentPage - 1) * PAGE_LIMIT;
+        const pageItems = filteredExecutions.slice(start, start + PAGE_LIMIT);
+        if (checkbox.checked) {
+            pageItems.forEach(exec => selectedIds.add(exec.executionId));
+        } else {
+            pageItems.forEach(exec => selectedIds.delete(exec.executionId));
+        }
+        updateSelectionUI();
+        renderTable();
+    }
+
+    function toggleSelect(execId, checked) {
+        if (checked) { selectedIds.add(execId); }
+        else { selectedIds.delete(execId); }
+        updateSelectionUI();
+    }
+
+    function updateSelectionUI() {
+        const btn = document.getElementById('delete-selected-btn');
+        const countEl = document.getElementById('selected-count');
+        const selectAll = document.getElementById('select-all');
+        const start = (currentPage - 1) * PAGE_LIMIT;
+        const pageItems = filteredExecutions.slice(start, start + PAGE_LIMIT);
+
+        if (selectedIds.size > 0) {
+            btn.style.display = '';
+            countEl.textContent = selectedIds.size;
+        } else {
+            btn.style.display = 'none';
+        }
+
+        const allOnPageSelected = pageItems.length > 0 && pageItems.every(exec => selectedIds.has(exec.executionId));
+        selectAll.checked = allOnPageSelected;
+        selectAll.indeterminate = !allOnPageSelected && pageItems.some(exec => selectedIds.has(exec.executionId));
+    }
+
+    function applyFilter() {
+        const statusFilter = document.getElementById('status-filter').value;
+        filteredExecutions = allExecutions.filter(exec => {
+            return !statusFilter || exec.status === statusFilter;
+        });
+        currentPage = 1;
+        renderTable();
+        updatePagination();
+    }
+
+    function renderTable() {
+        const tbody = document.getElementById('history-body');
+        if (filteredExecutions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="no-data">No execution history found</td></tr>';
+            document.getElementById('pagination').style.display = 'none';
+            return;
+        }
+        const start = (currentPage - 1) * PAGE_LIMIT;
+        const pageItems = filteredExecutions.slice(start, start + PAGE_LIMIT);
+        tbody.innerHTML = pageItems.map(exec => `
             <tr>
-                <td>${executionIds[idx]}</td>
+                <td><input type="checkbox" ${selectedIds.has(exec.executionId) ? 'checked' : ''} onchange="toggleSelect(${exec.executionId}, this.checked)"></td>
+                <td>${exec.executionId}</td>
                 <td>${formatTime(exec.startTime)}</td>
                 <td>${formatTime(exec.endTime)}</td>
                 <td>${calculateDuration(exec.startTime, exec.endTime, exec.status)}</td>
                 <td>${formatStatus(exec.status)}</td>
                 <td>${exec.pid}</td>
-                <td>
-                    <a href="/execution_log?id=${executionIds[idx]}" class="btn btn-sm">View Log</a>
-                    <a href="/api/delete_execution?id=${executionIds[idx]}" class="btn btn-danger">Delete</a>
+                <td class="actions-cell">
+                    <a href="/execution_log?id=${exec.executionId}" class="btn btn-sm">View Log</a>
+                    <button onclick="deleteExecution(${exec.executionId})" class="btn btn-sm btn-danger">Delete</button>
                 </td>
             </tr>
         `).join('');
 
-        } catch (error) {
-            console.error('Error loading history:', error);
-            document.getElementById('history-body').innerHTML =
-                '<tr><td colspan="7" class="error">Error loading history</td></tr>';
-        }
+        updateSelectionUI();
     }
 
-    loadHistory();
-    setInterval(loadHistory, 10000); // Refresh every 10 seconds
+    function goToPage(page) {
+        currentPage = page;
+        renderTable();
+        updatePagination();
+    }
+
+    function updatePagination() {
+        const paginationEl = document.getElementById('pagination');
+        const total = filteredExecutions.length;
+        const totalPages = Math.ceil(total / PAGE_LIMIT);
+
+        if (totalPages <= 1) { paginationEl.style.display = 'none'; return; }
+
+        paginationEl.style.display = 'flex';
+        const page = currentPage;
+        let html = `<span style="margin-right: 1rem;">Showing ${(page - 1) * PAGE_LIMIT + 1}-${Math.min(page * PAGE_LIMIT, total)} of ${total}</span>`;
+
+        if (page > 1) html += `<button class="btn btn-sm" onclick="goToPage(${page - 1})">Previous</button>`;
+
+        let startPage = Math.max(1, page - 2);
+        let endPage = Math.min(totalPages, page + 2);
+        if (startPage > 1) { html += `<button class="btn btn-sm" onclick="goToPage(1)">1</button>`; if (startPage > 2) html += `<span>...</span>`; }
+        for (let p = startPage; p <= endPage; p++) {
+            if (p === page) html += `<button class="btn btn-sm" style="background: var(--primary); opacity: 0.8;" disabled>${p}</button>`;
+            else html += `<button class="btn btn-sm" onclick="goToPage(${p})">${p}</button>`;
+        }
+        if (endPage < totalPages) { if (endPage < totalPages - 1) html += `<span>...</span>`; html += `<button class="btn btn-sm" onclick="goToPage(${totalPages})">${totalPages}</button>`; }
+        if (page < totalPages) html += `<button class="btn btn-sm" onclick="goToPage(${page + 1})">Next</button>`;
+
+        paginationEl.innerHTML = html;
+    }
+
+    document.getElementById('status-filter').addEventListener('input', applyFilter);
+
+    renderTable();
+    updatePagination();
 </script>
 {% endblock %}

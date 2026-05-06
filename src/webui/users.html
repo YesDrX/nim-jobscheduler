@@ -104,7 +104,7 @@
             <td>${user.email || '-'}</td>
             <td>${formatTime(user.createdAt)}</td>
             <td>${formatTime(user.updatedAt)}</td>
-            <td>
+            <td class="actions-cell">
                 <button onclick="showChangePassword(${userIds[index]})" class="btn btn-sm">Change Password</button>
                 <button onclick="deleteUser(${userIds[index]})" class="btn btn-sm btn-danger">Delete</button>
             </td>
@@ -265,6 +265,19 @@
 
     .btn-danger:hover {
         background: #dc2626;
+    }
+
+    @media (max-width: 768px) {
+        .modal-content {
+            padding: 1.25rem;
+            margin: 1rem;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .form-group input {
+            font-size: 16px;
+        }
     }
 </style>
 {% endblock %}

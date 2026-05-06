@@ -46,6 +46,18 @@
             if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
             return `${seconds}s`;
         }
+
+        function toggleNav() {
+            document.getElementById('nav-links').classList.toggle('open');
+        }
+
+        document.addEventListener('click', function(e) {
+            const nav = document.getElementById('nav-links');
+            const btn = document.querySelector('.hamburger');
+            if (nav.classList.contains('open') && !nav.contains(e.target) && !btn.contains(e.target)) {
+                nav.classList.remove('open');
+            }
+        });
     </script>
     <style>
         /* Toggle Switch */
@@ -107,7 +119,10 @@
     <nav class="navbar">
         <div class="container">
             <h1 class="logo">🚀 Job Scheduler</h1>
-            <ul class="nav-links">
+            <button class="hamburger" onclick="toggleNav()" aria-label="Toggle menu">
+                <span></span><span></span><span></span>
+            </button>
+            <ul class="nav-links" id="nav-links">
                 <li><a href="/" class="{{ if page == " dashboard": "active" else: "" }}">Dashboard</a></li>
                 <li><a href="/tasks" class="{{ if page == " tasks": "active" else: "" }}">Tasks</a></li>
                 <li><a href="/schedule" class="{{ if page == " schedule": "active" else: "" }}">Schedule</a></li>

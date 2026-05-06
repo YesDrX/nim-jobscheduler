@@ -58,6 +58,28 @@ a:hover {
     padding: 0.5rem;
 }
 
+/* Hamburger Menu */
+.hamburger {
+    display: none;
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0.5rem;
+    color: var(--text);
+    line-height: 1;
+}
+
+.hamburger span {
+    display: block;
+    width: 24px;
+    height: 2px;
+    background: var(--text);
+    margin: 5px 0;
+    border-radius: 2px;
+    transition: all 0.3s;
+}
+
 .container {
     max-width: 1600px;
     margin: 0 auto;
@@ -365,5 +387,233 @@ footer {
     to {
         transform: translateY(0);
         opacity: 1;
+    }
+}
+
+/* ================================================================
+   Mobile Responsive Styles
+   ================================================================ */
+
+/* Tablet and below (<= 768px) */
+@media (max-width: 768px) {
+    .hamburger {
+        display: block;
+    }
+
+    .navbar .container {
+        flex-wrap: wrap;
+    }
+
+    .nav-links {
+        display: none;
+        flex-direction: column;
+        width: 100%;
+        gap: 0;
+        margin-top: 0.5rem;
+        border-top: 1px solid var(--border);
+        padding-top: 0.5rem;
+    }
+
+    .nav-links.open {
+        display: flex;
+    }
+
+    .nav-links a {
+        padding: 0.75rem 0.5rem;
+        border-radius: 4px;
+    }
+
+    .container {
+        padding: 0 0.75rem;
+    }
+
+    main {
+        padding: 1rem 0;
+    }
+
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.75rem;
+    }
+
+    .stat-card {
+        padding: 1rem;
+    }
+
+    .stat-value {
+        font-size: 2rem;
+    }
+
+    .section {
+        padding: 0.75rem;
+    }
+
+    .section h3 {
+        font-size: 1.1rem;
+    }
+
+    .table-container {
+        -webkit-overflow-scrolling: touch;
+        margin: 0 -0.75rem;
+        padding: 0 0.75rem;
+    }
+
+    thead th {
+        padding: 0.5rem;
+        font-size: 0.75rem;
+        white-space: nowrap;
+    }
+
+    tbody td {
+        padding: 0.75rem 0.5rem;
+        font-size: 0.875rem;
+    }
+
+    tbody td .btn {
+        white-space: nowrap;
+    }
+
+    .actions-cell {
+        display: flex;
+        gap: 0.35rem;
+        flex-wrap: nowrap;
+    }
+
+    .btn {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+    }
+
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.8rem;
+    }
+
+    .modal-overlay {
+        align-items: flex-end;
+    }
+
+    .modal-content {
+        width: 100%;
+        max-width: none;
+        margin: 0;
+        border-radius: 12px 12px 0 0;
+        padding: 1.25rem;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .modal-actions {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .modal-actions .btn {
+        width: 100%;
+        text-align: center;
+    }
+
+    footer {
+        padding: 1rem 0;
+        margin-top: 2rem;
+        font-size: 0.8rem;
+    }
+
+    /* Form elements - 16px to prevent iOS zoom */
+    input,
+    select,
+    textarea {
+        font-size: 16px !important;
+    }
+
+    /* Search containers */
+    .search-container {
+        flex-direction: column;
+        align-items: stretch !important;
+    }
+
+    .search-container input,
+    .search-container select {
+        width: 100%;
+    }
+}
+
+/* Small phones (<= 480px) */
+@media (max-width: 480px) {
+    .logo {
+        font-size: 1.15rem;
+    }
+
+    .navbar {
+        padding: 0.5rem 0;
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .stat-value {
+        font-size: 1.75rem;
+    }
+
+    .stat-label {
+        font-size: 0.75rem;
+    }
+
+    h2 {
+        font-size: 1.25rem;
+    }
+
+    h3 {
+        font-size: 1.1rem;
+    }
+
+    .btn-group {
+        flex-wrap: wrap;
+    }
+
+    .btn-group .btn {
+        flex: 1;
+        text-align: center;
+        min-width: fit-content;
+    }
+
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .page-header h2 {
+        font-size: 1.25rem;
+    }
+
+    .dashboard-header h2 {
+        font-size: 1.25rem;
+    }
+
+    .status-badge {
+        font-size: 0.7rem;
+        padding: 0.15rem 0.5rem;
+    }
+
+    thead th {
+        padding: 0.4rem;
+        font-size: 0.7rem;
+    }
+
+    tbody td {
+        padding: 0.6rem 0.4rem;
+        font-size: 0.8rem;
+    }
+
+    .pagination {
+        flex-wrap: wrap;
+        font-size: 0.8rem;
+    }
+
+    .pagination .btn-sm {
+        padding: 0.2rem 0.4rem;
+        font-size: 0.75rem;
     }
 }

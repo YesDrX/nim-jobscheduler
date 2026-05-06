@@ -157,7 +157,7 @@
                     <div class="form-row">
                         <label>Active Window</label>
                         <div class="input-wrapper">
-                            <div style="display:flex; gap: 10px; align-items: center;">
+                            <div class="interval-window">
                                 <input type="time" id="intervalStart" name="intervalStart">
                                 <span>to</span>
                                 <input type="time" id="intervalEnd" name="intervalEnd">
@@ -470,8 +470,19 @@
         color: var(--text);
     }
 
-    /* Response for smaller screens */
-    @media (max-width: 600px) {
+    .interval-window {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    /* Mobile responsive */
+    @media (max-width: 768px) {
+        .form-container {
+            padding: 1rem;
+            max-width: 100%;
+        }
+
         .form-row {
             flex-direction: column;
         }
@@ -479,6 +490,55 @@
         .form-row>label {
             width: 100%;
             margin-bottom: 0.5rem;
+            padding-top: 0;
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+        }
+
+        .separator {
+            margin: 1.25rem 0;
+        }
+
+        .form-actions {
+            justify-content: stretch;
+        }
+
+        .form-actions .btn {
+            width: 100%;
+            text-align: center;
+        }
+
+        .command-item {
+            flex-direction: column;
+        }
+
+        .command-item .remove-command {
+            align-self: flex-end;
+        }
+
+        .interval-window {
+            flex-wrap: wrap;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .form-container {
+            padding: 0.75rem;
+        }
+
+        .input-wrapper input[type="text"],
+        .input-wrapper input[type="number"],
+        .input-wrapper select,
+        .input-wrapper textarea {
+            padding: 0.5rem;
+            font-size: 16px;
+        }
+
+        .help-text {
+            font-size: 0.75rem;
         }
     }
 </style>
