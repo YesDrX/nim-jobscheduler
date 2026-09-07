@@ -91,6 +91,16 @@
         return `${seconds}s`;
     }
 
+    async function cancleExecution(execId) {
+        showConfirmModal('Cancel Execution', 'Are you sure you want to cancel this execution?', async () => {
+            try {
+                const response = await fetch(`/api/cancel_execution?id=${execId}`, { method: 'POST' });
+                if (response.ok) { location.reload(); }
+                else { alert('Failed to cancel execution'); }
+            } catch (error) { alert('Error canceling execution'); }
+        });
+    }
+
     async function deleteExecution(execId) {
         showConfirmModal('Delete Execution', 'Are you sure you want to delete this execution and its logs?', async () => {
             try {
@@ -188,6 +198,7 @@
                 <td class="actions-cell">
                     <a href="/execution_log?id=${exec.executionId}" class="btn btn-sm">View Log</a>
                     <button onclick="deleteExecution(${exec.executionId})" class="btn btn-sm btn-danger">Delete</button>
+                    <button onclick="cancleExecution(${exec.executionId})" class="btn btn-sm btn-warning">Cancel</button>
                 </td>
             </tr>
         `).join('');

@@ -1,5 +1,5 @@
 import std/[asyncdispatch, strutils, json, times, os, uri,
-    sequtils, asynchttpserver, tables, options, strformat]
+    sequtils, asynchttpserver, tables, options, strformat, algorithm]
 
 when defined(posix):
   import posix
@@ -187,7 +187,10 @@ proc runWebServer*(webServer: WebServer) =
     # Wegpages
     # --- Dashboard / Root ---
     if (path == "/" or path == "/dashboard") and httpMethod == HttpGet:
-      let executions = queryRowsExecution(db, "1=1 ORDER BY startTime DESC LIMIT 200")
+      var
+        executions = queryRowsExecution(db, "status=='esRunning' ORDER BY startTime") & queryRowsExecution(db, "status!='esRunning' ORDER BY startTime DESC LIMIT 200")
+      executions.sort(proc (a: tuple[dbId: int, data: Execution], b: tuple[dbId: int, data: Execution]): int =
+        cmp(a.data.startTime, b.data.startTime))
       await respHtml(req, renderDashboard(executions))
       return
 
