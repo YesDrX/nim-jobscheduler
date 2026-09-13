@@ -7,6 +7,7 @@ import web/server
 import web/auth
 import ./[types, database, orm]
 import ./executor
+from ./usermgmt import userMain, printTopHelp, printUserHelp
 
 const
   DefaultConfigPath = "config.yaml"
@@ -98,6 +99,55 @@ proc start(config = DefaultConfigPath) =
 
 when isMainModule:
   setLogLevel(DEBUG)
-  dispatch(start, help = {
-    "config": "Path to the configuration file"
-  })
+  let cliParams = commandLineParams()
+  # --- User management CLI: `jobscheduler user ...` (same binary) ---
+  if cliParams.len >= 1 and cliParams[0] in ["user", "users"]:
+    quit(userMain(if cliParams.len > 1: cliParams[1..^1] else: @[]))
+  elif cliParams.len >= 1 and cliParams[0] in ["help", "--help", "-h"] and
+      cliParams.len == 1:
+    # Top-level help covering both service and user management.
+    printTopHelp()
+    quit(0)
+  elif cliParams.len >= 2 and cliParams[0] == "help" and cliParams[1] in [
+      "user", "users"]:
+    printUserHelp()
+    quit(0)
+  elif cliParams.len >= 1 and cliParams[0] == "start":
+    # Explicit `jobscheduler start [--config=PATH]` (same as default action).
+    var cfgPath = DefaultConfigPath
+    var wantHelp = false
+    var i = 1
+    var badOpt = ""
+    while i < cliParams.len:
+      let a = cliParams[i]
+      if a.startsWith("--config="):
+        cfgPath = a["--config=".len .. ^1]
+      elif a == "--config" and i + 1 < cliParams.len:
+        inc i
+        cfgPath = cliParams[i]
+      elif a.startsWith("-c="):
+        cfgPath = a["-c=".len .. ^1]
+      elif a == "-c" and i + 1 < cliParams.len:
+        inc i
+        cfgPath = cliParams[i]
+      elif a in ["-h", "--help"]:
+        wantHelp = true
+      elif a.startsWith("-"):
+        badOpt = a
+        break
+      else:
+        badOpt = a
+        break
+      inc i
+    if wantHelp or badOpt != "":
+      if badOpt != "":
+        stderr.writeLine("Unknown argument for 'start': " & badOpt)
+      echo "Usage:\n  jobscheduler start [-c|--config=PATH]\n\nStarts the Job Scheduler service.\n\nOptions:\n  -c, --config=PATH  Path to the configuration file (default: config.yaml)\n  -h, --help         Show this help."
+      quit(if wantHelp and badOpt == "": 0 else: 2)
+    start(cfgPath)
+  else:
+    # Default / backward-compatible: `jobscheduler [--config=PATH]`
+    # starts the service via cligen.
+    dispatch(start, help = {
+      "config": "Path to the configuration file"
+    })

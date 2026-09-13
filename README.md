@@ -90,9 +90,44 @@ nimble build -d:release
 
 ```bash
 ./jobscheduler --config=config.yaml
+# or explicitly:
+./jobscheduler start --config=config.yaml
 ```
 
 If `--config` is omitted, the scheduler looks for `config.yaml` in the current directory.
+
+---
+
+## User Management CLI
+
+The same `jobscheduler` binary manages users directly against the SQLite
+database (same hashing as the web UI, so CLI-created users can log in
+immediately). The database is located via `database.path` in the config file.
+
+```bash
+# List users
+./jobscheduler user list [--config=config.yaml] [--json]
+
+# Show one user (by username or ID)
+./jobscheduler user show alice
+
+# Add a user (prompts securely for password if --password is omitted)
+./jobscheduler user add alice --email=alice@example.com
+./jobscheduler user add bob --password=s3cret --email=bob@example.com
+
+# Change a password (prompts securely if --password is omitted)
+./jobscheduler user passwd alice
+./jobscheduler user passwd alice --password=newpass
+
+# Change an email address
+./jobscheduler user set-email alice --email=new@example.com
+
+# Delete a user (also removes their API tokens; use --yes to skip confirmation)
+./jobscheduler user delete bob --yes
+```
+
+Run `./jobscheduler user help` for full usage. `users` is accepted as an
+alias for `user`.
 
 ---
 
@@ -286,6 +321,8 @@ curl -X POST http://localhost:8080/api/trigger_task?id=1 \
 nim-jobscheduler/
 ├── src/
 │   ├── jobscheduler.nim       # Entry point, wires all components together
+│   │                           # (+ `start` service and `user` management CLI)
+│   ├── usermgmt.nim           # User management library + CLI (list/add/delete/passwd)
 │   ├── config.nim             # Config file loading (YAML → Config struct)
 │   ├── types.nim              # All core types, actors, channel message types
 │   ├── database.nim           # SQLite connection helpers
