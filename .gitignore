@@ -10,3 +10,8 @@ tasks/*
 .vscode/*
 config.yaml
 architecture.md
+test
+auth
+debug
+test.nim
+debug.nim

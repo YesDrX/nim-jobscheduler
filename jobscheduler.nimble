@@ -1,6 +1,6 @@
 # Package
 
-version = "1.0.2"
+version = "1.0.3"
 author = "User"
 description = "A full-featured job scheduler in Nim"
 license = "MIT"

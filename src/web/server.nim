@@ -188,9 +188,14 @@ proc runWebServer*(webServer: WebServer) =
     # --- Dashboard / Root ---
     if (path == "/" or path == "/dashboard") and httpMethod == HttpGet:
       var
-        executions = queryRowsExecution(db, "status=='esRunning' ORDER BY startTime") & queryRowsExecution(db, "status!='esRunning' ORDER BY startTime DESC LIMIT 200")
+        executions = queryRowsExecution(db, "status=='esRun·ning' ORDER BY startTime") & queryRowsExecution(db, "status!='esRunning' ORDER BY startTime DESC LIMIT 200")
       executions.sort(proc (a: tuple[dbId: int, data: Execution], b: tuple[dbId: int, data: Execution]): int =
-        cmp(a.data.startTime, b.data.startTime))
+        if a.data.status == esRunning and b.data.status != esRunning:
+          return 1
+        elif a.data.status != esRunning and b.data.status == esRunning:
+          return -1
+        else:
+          return cmp(a.data.startTime, b.data.startTime))
       await respHtml(req, renderDashboard(executions))
       return
 

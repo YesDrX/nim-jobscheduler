@@ -198,7 +198,7 @@
                 <td class="actions-cell">
                     <a href="/execution_log?id=${exec.executionId}" class="btn btn-sm">View Log</a>
                     <button onclick="deleteExecution(${exec.executionId})" class="btn btn-sm btn-danger">Delete</button>
-                    <button onclick="cancleExecution(${exec.executionId})" class="btn btn-sm btn-warning">Cancel</button>
+                    ${exec.status === 'Running' ? `<button onclick="cancleExecution(${exec.executionId})" class="btn btn-sm btn-danger">Cancel</button>` : ''}
                 </td>
             </tr>
         `).join('');
