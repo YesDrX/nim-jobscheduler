@@ -110,22 +110,107 @@ proc terminate*(p: ExecutionProcess) =
       warn "Failed to terminate process on windows: " & $p.int
 
   else:
-    # First attempt graceful shutdown via SIGTERM
-    let termRes = kill(p.Pid, SIGTERM)
-    if termRes != 0:
-      return  # Process already gone
+    if p.int <= 0:
+      return
+    # Signal the whole process group, not just the wrapper PID.
+    # Wrappers are started detached via setsid(), so PGID == wrapper PID and
+    # all descendants (job processes, local children, the ssh client for
+    # remote jobs) share it. Signalling only the wrapper PID orphans the
+    # children: the local wrapper has no trap to forward the signal, and a
+    # killed ssh client does not reliably stop the remote process tree.
+    discard kill(Pid(-p.int), SIGTERM)
 
-    # Give it up to 5 seconds to exit cleanly
+    # Give the group up to 5 seconds to exit cleanly
     var status: cint
     for _ in 0 ..< 50:
       let res = waitpid(p.Pid, status, WNOHANG)
-      if res == p.Pid:
-        return  # Exited cleanly
+      if res != 0:
+        return  # Reaped (== p.Pid) or already gone (== -1, ECHILD)
       sleep(100)
 
     # Force kill if still alive
-    discard kill(p.Pid, SIGKILL)
+    discard kill(Pid(-p.int), SIGKILL)
     discard waitpid(p.Pid, status, 0)  # Reap the zombie
+
+proc shQuote*(s: string): string =
+  ## Quote a string for POSIX sh (single-quote + escaped embedded quotes).
+  ## Generated wrapper scripts interpolate task/job-derived paths, so every
+  ## interpolation must go through this to survive spaces, $, backticks, etc.
+  "'" & s.replace("'", "'\\''") & "'"
+
+var execSeq = 0
+
+proc freshDt*(): string =
+  ## Unique timestamp tag per execution for script/log file names.
+  ## Second-resolution tags collide when the same job is triggered twice
+  ## within one second (manual double-trigger, parallel retries): the two
+  ## executions would share log/.exit/script files — and a re-uploaded remote
+  ## script could even corrupt a still-running one (bash reads incrementally).
+  ## Milliseconds + a monotonic counter make collisions impossible.
+  inc execSeq
+  now().format("yyyyMMdd'_'HHmmss'_'fff") & "_" & $execSeq
+
+proc sshBaseArgs*(keyPath: string): string =
+  ## Common non-interactive ssh/scp options (no port: ssh wants `-p`,
+  ## scp wants `-P`, callers add the right one).
+  ## - BatchMode: never prompt (fail fast so executions are caught as Failed)
+  ## - ConnectTimeout: fail fast on dead hosts instead of hanging in Running
+  ## - ServerAliveInterval/CountMax: detect dead connections mid-run
+  " -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10" &
+    " -o ServerAliveInterval=60 -o ServerAliveCountMax=3" &
+    " -i " & shQuote(keyPath)
+
+proc killRemoteExecution*(execution: Execution) =
+  ## Best-effort kill of the remote process tree for a cancelled execution.
+  ## Killing the local ssh client does NOT reliably stop the remote side
+  ## (verified: remote bash + job survive as orphans), and signalling the
+  ## remote script PID alone is not enough either: the remote wrapper traps
+  ## TERM, while KILL leaves its children (e.g. `sleep 300`) orphaned.
+  ## So the remote script records its PID in `<script>.pid` at startup; the
+  ## killer resolves the script's process GROUP and signals the group
+  ## (TERM, then KILL) — group members die whatever traps they set.
+  ## Deliberately NO `pgrep/pkill -f <pattern>`: the pattern string literally
+  ## appears in our own killer command line, so pattern matching self-kills
+  ## the killer (and orphans holding stdout then hang ssh forever).
+  ## Safety: the PID's command line must still contain our script path
+  ## (guards against PID reuse), and groups 0/1 are never signalled
+  ## (`kill -- -1` would hit everything). The killer ssh is wrapped in
+  ## `timeout` so a stuck host cannot wedge the executor's cancel path.
+  ## NOTE: the group list must NOT be stored in `$GROUPS` — that name is a
+  ## bash-reserved array (current user's group list); assignments to it do
+  ## not read back, which silently breaks the kill loop. We use `$RGIDS`.
+  if execution.remoteSshHost == "" or execution.remoteScriptFilename == "":
+    return
+  let target = execution.remoteSshUser & "@" & execution.remoteSshHost
+  # Pidfile path is derived from the script path: no DB schema change needed.
+  let pidFile = execution.remoteScriptFilename & ".pid"
+  let inner =
+    "PIDFILE=" & shQuote(pidFile) & "; " &
+    "SCRIPT=" & shQuote(execution.remoteScriptFilename) & "; " &
+    "PID=$(cat \"$PIDFILE\" 2>/dev/null || true); " &
+    "for i in 1 2 3; do if [ -n \"$PID\" ]; then break; fi; " &
+    "sleep 1; PID=$(cat \"$PIDFILE\" 2>/dev/null || true); done; " &
+    "RGIDS=\"\"; " &
+    "if [ -n \"$PID\" ] && ps -p \"$PID\" -o args= 2>/dev/null | " &
+    "grep -qF -- \"$SCRIPT\"; then " &
+    "RGIDS=$(ps -o pgid= -p \"$PID\" 2>/dev/null | tr -d ' ' | sort -u); fi; " &
+    "for G in $RGIDS; do case \"$G\" in ''|0|1) continue;; esac; " &
+    "kill -TERM -- \"-$G\" 2>/dev/null; done; " &
+    "sleep 2; " &
+    "for G in $RGIDS; do case \"$G\" in ''|0|1) continue;; esac; " &
+    "kill -KILL -- \"-$G\" 2>/dev/null; done; " &
+    "rm -f \"$SCRIPT\" \"$PIDFILE\""
+  let killCmd = "timeout 30 ssh" & sshBaseArgs(execution.remoteSshKeyPath) &
+    " -p " & $execution.remoteSshPort & " " & target & " " & shQuote(inner)
+  debug "Killing remote execution: " & execution.remoteScriptFilename &
+    " on " & target
+  try:
+    let rc = execShellCmd(killCmd)
+    debug "Remote kill exit code: " & $rc & " for " &
+      execution.remoteScriptFilename
+  except:
+    debug "Remote kill failed for " & execution.remoteScriptFilename &
+      ": " & getCurrentExceptionMsg()
 
 proc runLocalCommand*(
     executor: Executor,
@@ -136,7 +221,7 @@ proc runLocalCommand*(
     nextJobId: int,
     manualTriggered: bool = false
 ): tuple[exec: Execution, p: ExecutionProcess] =
-    let dt = now().format("yyyyMMdd") & "_" & now().format("HHmmss")
+    let dt = freshDt()
     let logDir = (executor.cfg.workingDir.expandTilde / task.name /
             job.name).sanitizeFileName
     createDir(logDir)
@@ -188,7 +273,7 @@ proc runRemoteCommand*(
     nextJobId: int,
     manualTriggered: bool = false
 ): tuple[exec: Execution, p: ExecutionProcess] =
-    let dt = now().format("yyyyMMdd") & "_" & now().format("HHmmss")
+    let dt = freshDt()
     let logDir = (executor.cfg.workingDir.expandTilde / task.name /
             job.name).sanitizeFileName
     createDir(logDir)
@@ -200,14 +285,20 @@ proc runRemoteCommand*(
     let sshPort = if task.sshPort > 0: task.sshPort else: 22
     let sshUser = task.sshUser
     let sshHost = task.sshHost
+    let sshTarget = sshUser & "@" & sshHost
+    let baseArgs = sshBaseArgs(keyPath)
 
     var scriptPath: string
     let remoteScriptPath = ("/tmp/" & task.name & "_" & job.name & "_" & dt &
             ".sh").sanitizeFileName
-    
+
     let jobCommandFile = logDir / (dt & "_cmd.sh")
+    # The remote script records its PID in <script>.pid first thing: cancel
+    # uses it to signal the whole remote process group (see killRemoteExecution).
+    let remotePidFile = remoteScriptPath & ".pid"
     let cmdScriptContent = "#!/bin/bash\n" &
-                           "trap 'kill -TERM 0' EXIT HUP INT TERM\n" & 
+                           "echo $$ > " & shQuote(remotePidFile) & "\n" &
+                           "trap 'kill -TERM 0' EXIT HUP INT TERM\n" &
                            job.command & " &\n" &
                            "wait $!\n" &
                            "ERR=$?\n" &                   # <-- 1. Save the real exit code
@@ -215,11 +306,15 @@ proc runRemoteCommand*(
                            "exit $ERR\n"                  # <-- 3. Exit with the real code
     writeFile(jobCommandFile, cmdScriptContent)
 
-    let scpCmd = "scp -q -o StrictHostKeyChecking=no -o BatchMode=yes -P " & $sshPort & " -i \"" & keyPath &
-            "\" \"" & jobCommandFile & "\" " & sshUser & "@" & sshHost & ":" & remoteScriptPath
-    let sshCmd = "ssh -tt -o ServerAliveInterval=60 -o StrictHostKeyChecking=no -o BatchMode=yes -p " &
-            $sshPort & " -i \"" & keyPath & "\" " & sshUser & "@" & sshHost &
-            " \"bash " & remoteScriptPath & "\""
+    # NOTE: no `-tt` (pty): it injects CRLF + "Connection closed" noise into
+    # logs and changes remote signal semantics. `-n` keeps ssh off stdin so a
+    # backgrounded ssh can never block on scheduler stdin.
+    let scpCmd = "scp -q" & baseArgs & " -P " & $sshPort &
+            " " & shQuote(jobCommandFile) &
+            " " & shQuote(sshTarget & ":" & remoteScriptPath)
+    let sshCmd = "ssh -n" & baseArgs & " -p " & $sshPort &
+            " " & sshTarget &
+            " " & shQuote("bash " & remoteScriptPath)
 
     when defined(windows):
         scriptPath = logDir / (dt & "_remote.bat")
@@ -231,16 +326,24 @@ proc runRemoteCommand*(
     else:
         scriptPath = logDir / (dt & "_remote.sh")
         let exitFile = scriptPath & ".exit"
+        # Log redirect comes FIRST so scp errors land in the execution log.
+        # scp failure aborts before ssh so a stale remote script can never run
+        # and the failure is caught with a clear message + non-zero exit.
         let scriptContent = "#!/bin/bash\n" &
-                            "trap 'kill -TERM 0' EXIT HUP INT TERM\n" &
+                            "exec > " & shQuote(logFile) & " 2>&1\n" &
                             scpCmd & "\n" &
-                            "exec > \"" & logFile & "\" 2>&1\n" &
-                            sshCmd & " &\n" &      
-                            "wait $!\n" &          
-                            "ERR=$?\n" &                   # <-- 1. Save the real exit code
-                            "trap - EXIT HUP INT TERM\n" & # <-- 2. DISARM THE TRAP
-                            "echo $ERR > \"" & exitFile & "\"\n" & 
-                            "exit $ERR\n"                  # <-- 3. Exit safely
+                            "SCP_STATUS=$?\n" &
+                            "if [ $SCP_STATUS -ne 0 ]; then\n" &
+                            "  echo \"scp upload to " & sshHost &
+                                " failed with exit code $SCP_STATUS\"\n" &
+                            "  echo $SCP_STATUS > " & shQuote(exitFile) & "\n" &
+                            "  exit $SCP_STATUS\n" &
+                            "fi\n" &
+                            sshCmd & " &\n" &
+                            "wait $!\n" &
+                            "ERR=$?\n" &
+                            "echo $ERR > " & shQuote(exitFile) & "\n" &
+                            "exit $ERR\n"
         writeFile(scriptPath, scriptContent)
         inclFilePermissions(scriptPath, {fpUserExec, fpGroupExec, fpOthersExec})
 
@@ -275,7 +378,11 @@ proc cleanupScripts*(executor: Executor, execution: Execution, task: Task) =
   if task.taskType == ttRemote:
     if execution.remoteScriptFilename.len > 0:
       debug "Removing remote script file: " & execution.remoteScriptFilename & " from host " & execution.remoteSshHost
-      let rmCmd = "ssh -o StrictHostKeyChecking=no -o BatchMode=yes -p " & $execution.remoteSshPort & " -i " & execution.remoteSshKeyPath & " " & execution.remoteSshUser & "@" & execution.remoteSshHost & " \"rm -f " & execution.remoteScriptFilename & "\""
+      let rmCmd = "ssh" & sshBaseArgs(execution.remoteSshKeyPath) &
+        " -p " & $execution.remoteSshPort & " " &
+        execution.remoteSshUser & "@" & execution.remoteSshHost & " " &
+        shQuote("rm -f " & execution.remoteScriptFilename & " " &
+          execution.remoteScriptFilename & ".pid")
       try:
         discard execShellCmd(rmCmd)
       except:
@@ -379,6 +486,11 @@ proc cancelExecution*(executor: Executor, executionId: int) =
                 messageTitle: "Execution cancelled: " & execTuple.task.name & " " & execTuple.execution.jobName,
                 message: "Execution " & $executionId & " cancelled by user"
             ))
+
+        # Remote jobs: killing the local wrapper/ssh does not reliably stop
+        # the remote tree, so terminate it explicitly (TERM, then KILL).
+        if execTuple.task.taskType == ttRemote:
+            killRemoteExecution(execTuple.execution)
 
         executor.cleanupScripts(execTuple.execution, execTuple.task)
 

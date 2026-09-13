@@ -17,6 +17,10 @@ const StaticFiles = {
   "/static/toggles.css": staticRead("../webui/static/toggles.css")
 }.toTable
 
+const DashboardRecentPerJobLimit* = 5
+  ## Max non-running executions shown per jobId on the dashboard, so
+  ## high-frequency recurring jobs cannot flood the recent-executions view.
+
 # http helpers
 proc toHeaders(headers: Table[string, string]): HttpHeaders =
   var httpHeaders = newHttpHeaders()
@@ -187,15 +191,25 @@ proc runWebServer*(webServer: WebServer) =
     # Wegpages
     # --- Dashboard / Root ---
     if (path == "/" or path == "/dashboard") and httpMethod == HttpGet:
-      var
-        executions = queryRowsExecution(db, "status=='esRun·ning' ORDER BY startTime") & queryRowsExecution(db, "status!='esRunning' ORDER BY startTime DESC LIMIT 200")
+      # Running executions first (all of them), then recent non-running ones
+      # capped at DashboardRecentPerJobLimit per jobId so high-frequency
+      # recurring jobs cannot flood the view.
+      let runningExecs = queryRowsExecution(db, "status = '" &
+          esRunning.serialize() & "' ORDER BY startTime DESC")
+      let recentExecs = queryRowsExecution(db,
+        "_dbID IN (SELECT _dbID FROM (SELECT _dbID, row_number() OVER " &
+        "(PARTITION BY jobId ORDER BY startTime DESC) AS rn FROM " &
+        "ExecutionTable WHERE status != '" & esRunning.serialize() &
+        "') WHERE rn <= " & $DashboardRecentPerJobLimit & ") " &
+        "ORDER BY startTime DESC")
+      var executions = runningExecs & recentExecs
       executions.sort(proc (a: tuple[dbId: int, data: Execution], b: tuple[dbId: int, data: Execution]): int =
         if a.data.status == esRunning and b.data.status != esRunning:
-          return 1
-        elif a.data.status != esRunning and b.data.status == esRunning:
           return -1
+        elif a.data.status != esRunning and b.data.status == esRunning:
+          return 1
         else:
-          return cmp(a.data.startTime, b.data.startTime))
+          return cmp(b.data.startTime, a.data.startTime))
       await respHtml(req, renderDashboard(executions))
       return
 
