@@ -1,14 +1,20 @@
-import std/[times, options, strutils, strscans, os, tables]
+import std/[times, options, strutils, strscans, tables]
 import timezones, timezones/private/timezonedbs
 import ../[types, utils]
 
 import cron
 
+# Embedded at compile time so the binary is portable.
+# The old code used `readFile currentSourcePath.parentDir / "../timezones.json"`,
+# which bakes the *build-time* absolute path (e.g. ~/.nimble/buildtemp/...)
+# into the binary and breaks after `nimble install` deletes that temp dir.
+# `staticRead` copies the JSON into the binary instead.
+const tzDbContent = staticRead "../timezones.json"
+
 # Helper to get timezone from string, defaulting to UTC
 proc parseTimezone(tzName: string): Timezone =
   if timezonedbs.TimezoneDb(getDefaultTzDb()).tzByName.len == 0:
-    let content = readFile currentSourcePath.parentDir / "../timezones.json"
-    setDefaultTzDb(parseTzDb(content))
+    setDefaultTzDb(parseTzDb(tzDbContent))
 
   if tzName == "UTC": return utc()
   if tzName == "" or tzName == "Local": return local()

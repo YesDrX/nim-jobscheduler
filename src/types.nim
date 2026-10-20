@@ -338,6 +338,8 @@ proc newScheduler*(dbChan: ptr DbChannel, schedulerChan: ptr SchedulerChannel,
   result.cfg = cfg
   result.taskSchedule = @[]
   result.tasks = initTable[int, Task]()
+  result.jobs = initTable[int, seq[tuple[dbId: int, data: Job]]]()
+  result.jobsToTaskMap = initTable[int, int]()
 
 proc newSchedulerMonitor*(dbChan: ptr DbChannel,
     schedulerChan: ptr SchedulerChannel, executorChan: ptr ExecutorChannel,
@@ -348,6 +350,7 @@ proc newSchedulerMonitor*(dbChan: ptr DbChannel,
   result.executorChan = executorChan
   result.monitorChan = monitorChan
   result.cfg = cfg
+  result.lastFileModTime = initTable[string, Time]()
 
 proc newExecutor*(dbChan: ptr DbChannel, schedulerChan: ptr SchedulerChannel,
     executorChan: ptr ExecutorChannel, monitorChan: ptr SchedulerMonitorChannel,

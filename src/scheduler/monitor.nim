@@ -11,6 +11,10 @@ proc loadTasksFromDir*(s: SchedulerMonitor) =
     return task.name & "||" & task.sourceFile
 
   if not dirExists(s.cfg.tasksDir):
+    # Still stamp the scan time: otherwise lastTasksScanTime stays
+    # uninitialized and `referenceNowTime - lastTasksScanTime` asserts
+    # (`dt.monthdayZero != 0`) on every monitor iteration.
+    s.lastTasksScanTime = now().utc
     return
 
   let db = getReaderDb(s.cfg.database.path)
@@ -102,7 +106,8 @@ proc runSchedulerMonitor*(s: SchedulerMonitor) {.gcsafe.} =
     try:
       let referenceNowTime = now().utc
 
-      if (referenceNowTime - s.lastTasksScanTime).inSeconds > 15:
+      if not s.lastTasksScanTime.isInitialized or (referenceNowTime -
+          s.lastTasksScanTime).inSeconds > 15:
         s.loadTasksFromDir()
         s.lastTasksScanTime = referenceNowTime
 
