@@ -4,17 +4,28 @@ import ../[types, utils]
 
 import cron
 
-# Embedded at compile time so the binary is portable.
-# The old code used `readFile currentSourcePath.parentDir / "../timezones.json"`,
-# which bakes the *build-time* absolute path (e.g. ~/.nimble/buildtemp/...)
-# into the binary and breaks after `nimble install` deletes that temp dir.
-# `staticRead` copies the JSON into the binary instead.
+# Timezone database, embedded at compile time so the binary is portable.
+# `staticRead` copies the JSON into the binary; nothing is read from disk at
+# runtime. (The old code used `readFile currentSourcePath.parentDir /
+# "../timezones.json"`, which baked the *build-time* absolute path, e.g.
+# ~/.nimble/buildtemp/..., into the binary and crashed after `nimble install`
+# deleted that temp dir.)
 const tzDbContent = staticRead "../timezones.json"
+
+# Parsed once at startup from the embedded JSON and shared read-only by all
+# threads. NB: the `timezones` package keeps its default DB in a thread-local
+# var, so every thread must still call `setDefaultTzDb` for itself — but that
+# is now just a ref assignment instead of re-parsing 2.3 MB of JSON per thread.
+let sharedTzDb = parseTzDb(tzDbContent)
 
 # Helper to get timezone from string, defaulting to UTC
 proc parseTimezone(tzName: string): Timezone =
   if timezonedbs.TimezoneDb(getDefaultTzDb()).tzByName.len == 0:
-    setDefaultTzDb(parseTzDb(tzDbContent))
+    # Sound: `sharedTzDb` is fully built during module init (single main
+    # thread, before any worker exists) and never mutated afterwards, so
+    # concurrent read-only sharing across threads is safe.
+    {.cast(gcsafe).}:
+      setDefaultTzDb(sharedTzDb)
 
   if tzName == "UTC": return utc()
   if tzName == "" or tzName == "Local": return local()

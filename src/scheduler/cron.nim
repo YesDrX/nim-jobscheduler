@@ -66,26 +66,63 @@ proc parseCron*(expr: string): Option[CronExpr] =
 proc matches(field: CronField, val: int): bool =
   return field.all or val in field.values
 
+proc ensureProgress(prev: DateTime, cur: DateTime,
+    step: Duration): DateTime =
+  ## DST fall-back creates duplicate wall times (e.g. 02:00 occurs twice).
+  ## Rebuilding a DateTime from wall components with `dateTime(...)` always
+  ## resolves to the *first* occurrence, so `t + 1.hours` followed by a
+  ## truncation to the start of the hour can move *backwards* in absolute
+  ## time and loop forever. Force monotonic progress in UTC.
+  result = cur
+  var guard = 0
+  while result.toTime <= prev.toTime:
+    result = result + step
+    inc guard
+    if guard > 200:
+      # Should never happen (duplicate hour needs at most 1-2 steps,
+      # initial minute truncation at most ~60 steps for a 1h fallback).
+      # Break anyway to guarantee termination; the outer year bound
+      # will then raise ValueError.
+      break
+
 proc nextRun*(expression: CronExpr, after: DateTime): DateTime =
   ## Determine the next run time after the given time
   var t = after + 1.minutes
   # Reset seconds to 0
   t = dateTime(t.year, t.month, t.monthday, t.hour, t.minute, 0, 0, t.timezone)
+  # The wall-clock rebuild above can resolve to the earlier occurrence of an
+  # ambiguous time and end up <= `after` (fall-back). Push forward absolutely.
+  t = ensureProgress(after, t, initDuration(minutes = 1))
 
   # Safety break designed to prevent infinite loops - e.g. look ahead up to 5 years
   let endYear = t.year + 5
 
+  # Secondary iteration cap: with the monotonic-progress guard every iteration
+  # advances UTC by >= 1 minute, so 5 years can never need more than ~2.7M
+  # steps. Cap well above that to turn any future regression into an error
+  # instead of a hang.
+  var iter = 0
+  const MaxIters = 5_000_000
+
   while t.year <= endYear:
+    inc iter
+    if iter > MaxIters:
+      raise newException(ValueError, "No run time found within reasonable limit")
+
     if not matches(expression.month, t.month.int):
+      let prev = t
       t = t + 1.months
       # Reset to start of month
       t = dateTime(t.year, t.month, 1, 0, 0, 0, 0, t.timezone)
+      t = ensureProgress(prev, t, initDuration(days = 1))
       continue
 
     if not matches(expression.day, t.monthday):
+      let prev = t
       t = t + 1.days
       # Reset to start of day
       t = dateTime(t.year, t.month, t.monthday, 0, 0, 0, 0, t.timezone)
+      t = ensureProgress(prev, t, initDuration(days = 1))
       continue
 
     # Weekday check
@@ -96,14 +133,18 @@ proc nextRun*(expression: CronExpr, after: DateTime): DateTime =
     let cronDay = if nimDay == dSun: 0 else: nimDay.int + 1
 
     if not matches(expression.weekday, cronDay):
+      let prev = t
       t = t + 1.days
       t = dateTime(t.year, t.month, t.monthday, 0, 0, 0, 0, t.timezone)
+      t = ensureProgress(prev, t, initDuration(days = 1))
       continue
 
     if not matches(expression.hour, t.hour):
+      let prev = t
       t = t + 1.hours
       # Reset to start of hour
       t = dateTime(t.year, t.month, t.monthday, t.hour, 0, 0, 0, t.timezone)
+      t = ensureProgress(prev, t, initDuration(hours = 1))
       continue
 
     if not matches(expression.minute, t.minute):

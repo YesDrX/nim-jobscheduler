@@ -375,12 +375,17 @@ proc runWebServer*(webServer: WebServer) =
       for (taskId, task) in tasks:
         if task.scheduleType == stInterval and task.intervalMinutes > 60:
           var lastRunTime: DateTime
-          while not lastRunTime.isInitialized or lastRunTime < referenceTime +
-              hours(24):
+          var guard = 0
+          while (not lastRunTime.isInitialized or lastRunTime <
+              referenceTime + hours(24)) and guard < 100:
+            inc guard
             let nextRunTime = getNextTrigger(task, referenceTime,
                 if lastRunTime.isInitialized: some(lastRunTime) else: none(
                 DateTime), none(DateTime))
             if nextRunTime.isSome():
+              # Defensive: never let a non-advancing next-run hang the page.
+              if lastRunTime.isInitialized and nextRunTime.get() <= lastRunTime:
+                break
               schedule.add(ScheduledTask(
                 triggerTime: nextRunTime.get(),
                 taskId: taskId,
