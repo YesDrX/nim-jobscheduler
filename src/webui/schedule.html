@@ -1,273 +1,173 @@
 {% extends "base.html" %}
 
+{% block title %}Schedule — Job Scheduler{% endblock %}
 
-{% block title %}Daily Schedule - Job Scheduler{% endblock %}
+{% block breadcrumbs %}
+<span class="current">Schedule</span>
+{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h2>Daily Schedule</h2>
+    <div class="page-title-group">
+        <h1 class="page-title">Daily Schedule</h1>
+        <p class="page-subtitle">Upcoming and completed triggers across the next 24 hours.</p>
+    </div>
+    <div class="filter-pills" role="group" aria-label="Schedule filter">
+        <button type="button" class="filter-pill active" data-mode="all" onclick="setMode('all')">All Today</button>
+        <button type="button" class="filter-pill" data-mode="upcoming" onclick="setMode('upcoming')">Upcoming Only</button>
+        <button type="button" class="filter-pill" data-mode="enabled" onclick="setMode('enabled')">Enabled Only</button>
+    </div>
 </div>
 
-<div class="section">
-    <div id="loading" class="loading">Loading schedule...</div>
-    <div id="schedule-container" style="display: none;">
-        <div id="timeline"></div>
-        <div id="no-schedule" class="no-data" style="display: none;">No tasks scheduled for this day</div>
+<!-- Frequent Interval Tasks -->
+<div class="card" id="frequent-card" style="display:none">
+    <div class="card-header">
+        <div class="card-title">
+            <span>Frequent Interval Tasks</span>
+            <span id="frequent-count" class="badge">0</span>
+        </div>
+        <span class="muted" style="font-size:12.5px;">Tasks repeating every 60 minutes or less</span>
     </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Task</th>
+                    <th>Interval</th>
+                    <th>Active Window</th>
+                    <th>Status</th>
+                    <th class="align-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="frequent-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 24h Timeline -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">
+            <span>Timeline</span>
+            <span id="timeline-count" class="badge">0</span>
+        </div>
+        <span id="clock-label" class="muted tabular mono" style="font-size:12.5px;"></span>
+    </div>
+    <div id="timeline-list" class="timeline-list"></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    const scheduleData = {{ scheduleJson }};
-    const tasksData = {{ tasksJson }};
-    const taskIds = {{ taskIdsJson }};
+    let state = {{ initialJson }};
+    let mode = 'all';
 
-    const tasks = tasksData.map((item, index) => {
-        return {
-            id: taskIds[index],
-            ...item
-        };
-    });
+    function setMode(m) {
+        mode = m;
+        document.querySelectorAll('.filter-pill[data-mode]').forEach(b => {
+            b.classList.toggle('active', b.getAttribute('data-mode') === mode);
+        });
+        render();
+    }
 
-    const shortIntervalTasks = tasks.filter(t => t.scheduleType === 'interval' && t.intervalMinutes <= 60);
-
-
-    function loadSchedule() {
-        const container = document.getElementById('schedule-container');
-        const timeline = document.getElementById('timeline');
-        const noSchedule = document.getElementById('no-schedule');
-        const loading = document.getElementById('loading');
-
-        loading.style.display = 'none';
-        container.style.display = 'block';
-        timeline.innerHTML = '';
-
-        if (shortIntervalTasks.length > 0) {
-            const summaryHtml = shortIntervalTasks.map(t => {
-                return `<li><strong><a href="/task_detail?id=${t.id}" style="color:inherit; text-decoration:none;">${t.name}</a></strong> - Every ${t.intervalMinutes} min (${t.intervalStart} to ${t.intervalEnd})</li>`;
-            }).join('');
-
-            timeline.innerHTML += `
-                <div class="schedule-summary-section">
-                    <h4 style="margin-top: 0; margin-bottom: 0.5rem;">Frequent Tasks</h4>
-                    <ul class="summary-list">
-                        ${summaryHtml}
-                    </ul>
-                </div>
-            `;
-        }
-
-        if (scheduleData.length === 0) {
-            noSchedule.style.display = 'block';
-            return;
-        } else {
-            noSchedule.style.display = 'none';
-        }
-
-        scheduleData.sort((a, b) => parseTime(a.triggerTime) - parseTime(b.triggerTime));
-
+    function render() {
         const now = new Date();
-        let dividerInserted = false;
+        document.getElementById('clock-label').textContent =
+            'Now: ' + now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-        scheduleData.forEach(item => {
-            const itemTime = parseTime(item.triggerTime);
-            const isPast = itemTime < now;
-
-            if (!isPast && !dividerInserted) {
-                timeline.innerHTML += `
-                    <div class="current-time-divider">
-                        <span>Current Time</span>
-                    </div>
+        // 1. Frequent tasks
+        let freq = state.frequentTasks || [];
+        if (mode === 'enabled') freq = freq.filter(t => t.enabled);
+        const freqCard = document.getElementById('frequent-card');
+        if (freq.length > 0) {
+            freqCard.style.display = 'block';
+            document.getElementById('frequent-count').textContent = String(freq.length);
+            document.getElementById('frequent-body').innerHTML = freq.map(t => {
+                const safeJs = escapeHtml(t.taskName).replace(/'/g, "\\'");
+                const win = t.intervalStart && t.intervalEnd ? `${escapeHtml(t.intervalStart)} – ${escapeHtml(t.intervalEnd)}` : '24h';
+                return `
+                    <tr>
+                        <td>
+                            <a href="/task_detail?id=${t.taskId}"><strong>${escapeHtml(t.taskName)}</strong></a>
+                            ${t.description ? `<div class="muted" style="font-size:12px;">${escapeHtml(t.description)}</div>` : ''}
+                        </td>
+                        <td><span class="badge primary">Every ${Number(t.intervalMinutes)}m</span></td>
+                        <td class="mono muted">${win}</td>
+                        <td><span class="status-badge ${t.enabled ? 'success' : 'cancelled'}"><span class="dot"></span>${t.enabled ? 'Enabled' : 'Paused'}</span></td>
+                        <td>
+                            <div class="cell-actions">
+                                <button type="button" class="btn btn-xs btn-success-soft" onclick="triggerTaskInPlace(${t.taskId}, '${safeJs}')">Run</button>
+                                <a href="/task_detail?id=${t.taskId}" class="btn btn-xs btn-secondary">View</a>
+                            </div>
+                        </td>
+                    </tr>
                 `;
-                dividerInserted = true;
+            }).join('');
+        } else {
+            freqCard.style.display = 'none';
+        }
+
+        // 2. Timeline
+        let items = (state.schedule || []).slice().map(item => ({
+            ...item,
+            _date: parseTime(item.triggerTime)
+        })).filter(it => it._date !== null);
+
+        items.sort((a, b) => a._date - b._date);
+        if (mode === 'upcoming') items = items.filter(it => it._date >= now);
+        if (mode === 'enabled') items = items.filter(it => it.enabled);
+
+        document.getElementById('timeline-count').textContent = String(items.length);
+        const list = document.getElementById('timeline-list');
+
+        if (items.length === 0) {
+            list.innerHTML = `<div class="empty-state"><div class="empty-state-title">No scheduled triggers</div><div class="empty-state-sub">No matching tasks are scheduled in this window.</div></div>`;
+            return;
+        }
+
+        let html = '';
+        let nowInserted = false;
+        items.forEach(item => {
+            const isPast = item._date < now;
+            if (!isPast && !nowInserted && mode !== 'upcoming') {
+                html += `<div class="timeline-now-divider"><span class="live-dot" style="background:var(--danger)"></span><span>Current Time — ${now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span></div>`;
+                nowInserted = true;
             }
-
-            const timeStr = itemTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-            timeline.innerHTML += `
-                <div class="timeline-row ${isPast ? 'timeline-past' : ''}">
-                    <div class="timeline-time">${timeStr}</div>
-                    <div class="timeline-excess">
-                        <div class="timeline-item">
-                            <span class="task-name"><a href="/task_detail?id=${item.taskId}" style="color:inherit; text-decoration:none;">${item.taskName}</a></span>
-                            <a href="/task_detail?id=${item.taskId}" class="badge mini" style="margin-left:auto; text-decoration:none; color:inherit; border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px;">View</a>
+            const timeStr = item._date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+            const safeJs = escapeHtml(item.taskName).replace(/'/g, "\\'");
+            html += `
+                <div class="timeline-row ${isPast ? 'past' : ''}">
+                    <div class="timeline-time">${escapeHtml(timeStr)}</div>
+                    <div style="flex:1;min-width:0;">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                            <a href="/task_detail?id=${item.taskId}" style="font-weight:600;color:var(--text-primary);">${escapeHtml(item.taskName)}</a>
+                            <span class="badge">${escapeHtml(item.taskType || 'local')}</span>
+                            ${!item.enabled ? '<span class="badge warning">Paused</span>' : ''}
+                            <span class="muted tabular" style="font-size:12px;">${formatRelativeTime(item.triggerTime)}</span>
                         </div>
+                        ${item.description ? `<div class="muted truncate" style="font-size:12.5px;margin-top:2px;">${escapeHtml(item.description)}</div>` : ''}
+                    </div>
+                    <div class="cell-actions">
+                        <button type="button" class="btn btn-xs btn-success-soft" onclick="triggerTaskInPlace(${item.taskId}, '${safeJs}')">Run</button>
+                        <a href="/task_detail?id=${item.taskId}" class="btn btn-xs btn-secondary">Details</a>
                     </div>
                 </div>
             `;
         });
-
-        if (!dividerInserted) {
-            timeline.innerHTML += `
-                <div class="current-time-divider">
-                    <span>Current Time</span>
-                </div>
-            `;
+        if (!nowInserted && mode !== 'upcoming') {
+            html += `<div class="timeline-now-divider"><span class="live-dot" style="background:var(--danger)"></span><span>Current Time — ${now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span></div>`;
         }
+        list.innerHTML = html;
     }
 
-    document.addEventListener("DOMContentLoaded", () => {
-        loadSchedule();
-    });
+    render();
+
+    const poller = createAutoPoller(async () => {
+        const fresh = await apiJson('/api/schedule');
+        if (fresh) {
+            state = fresh;
+            render();
+        }
+    }, { intervalMs: 15000 });
 </script>
-
-<style>
-    .schedule-summary-section {
-        background: var(--bg-body);
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid var(--primary);
-        margin-bottom: 1rem;
-    }
-
-    .summary-list {
-        list-style: none;
-        padding: 0;
-    }
-
-    .summary-list li {
-        padding: 0.5rem 0;
-        border-bottom: 1px solid var(--border);
-    }
-
-    .summary-list li:last-child {
-        border-bottom: none;
-    }
-
-    .timeline-row {
-        display: flex;
-        align-items: flex-start;
-        margin-bottom: 1rem;
-        padding-bottom: 1rem;
-        border-bottom: 1px dashed var(--border);
-    }
-
-    .timeline-time {
-        font-weight: bold;
-        width: 80px;
-        flex-shrink: 0;
-        color: var(--primary);
-    }
-
-    .timeline-excess {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .timeline-item {
-        background: var(--bg-card);
-        /* Could be slight offset */
-        padding: 0.25rem 0.5rem;
-        border-radius: 4px;
-        border: 1px solid var(--border);
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    /* Current time divider - clean horizontal line */
-    /* Current time divider - clean horizontal line */
-    .current-time-divider {
-        position: relative;
-        height: 4px;
-        background: var(--danger);
-        margin: 1.5rem 0;
-        border-radius: 2px;
-        box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
-        z-index: 10;
-    }
-
-    .current-time-divider span {
-        position: absolute;
-        right: 0;
-        top: -12px;
-        background: var(--danger);
-        color: white;
-        padding: 0.2rem 0.6rem;
-        border-radius: 9999px;
-        font-size: 0.75rem;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    }
-
-    /* Past events styling */
-    /* Past events styling */
-    .timeline-past {
-        opacity: 0.6;
-        filter: grayscale(0.5);
-    }
-
-    .timeline-past .timeline-time {
-        color: var(--text-muted) !important;
-        font-weight: normal;
-    }
-
-    .timeline-past .timeline-item {
-        background: var(--bg);
-        /* Use main bg instead of card bg for 'lighter' look (in light mode at least) */
-        border-color: transparent;
-        box-shadow: none;
-    }
-
-    [data-theme="dark"] .timeline-past .timeline-item {
-        background: rgba(255, 255, 255, 0.03);
-        /* Subtle highlight for dark mode past items */
-    }
-
-    .badge.mini {
-        font-size: 0.7rem;
-        padding: 0.1rem 0.4rem;
-    }
-
-    @media (max-width: 768px) {
-        .timeline-row {
-            flex-direction: column;
-            gap: 0.25rem;
-        }
-
-        .timeline-time {
-            width: 100%;
-            font-size: 0.9rem;
-        }
-
-        .timeline-item {
-            flex-wrap: wrap;
-            font-size: 0.9rem;
-        }
-
-        .current-time-divider span {
-            font-size: 0.65rem;
-            padding: 0.15rem 0.5rem;
-            top: -10px;
-        }
-    }
-
-    @media (max-width: 480px) {
-        .schedule-summary-section {
-            padding: 0.75rem;
-        }
-
-        .summary-list li {
-            font-size: 0.85rem;
-        }
-
-        .timeline-time {
-            font-size: 0.8rem;
-        }
-
-        .timeline-item {
-            font-size: 0.8rem;
-            padding: 0.25rem 0.4rem;
-        }
-
-        .badge.mini {
-            font-size: 0.65rem;
-        }
-    }
-</style>
 {% endblock %}

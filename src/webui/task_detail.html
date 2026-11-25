@@ -1,243 +1,451 @@
 {% extends "base.html" %}
 
+{% block title %}{{ taskName }} — Task Details{% endblock %}
 
-{% block title %}{{ taskName }} - Task Details{% endblock %}
+{% block breadcrumbs %}
+<a href="/tasks">Tasks</a>
+<span id="bc-folder-wrap"></span>
+<span class="sep">/</span>
+<span class="current" id="bc-task-name">{{ taskName }}</span>
+{% endblock %}
+
+{% block topbar_actions %}
+<button type="button" class="btn btn-sm btn-primary" onclick="runTask()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    <span>Run Task</span>
+</button>
+<a href="/edit_task?id={{ taskId }}" class="btn btn-sm btn-secondary">Edit</a>
+{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h2>{{ taskName }}</h2>
-    <div class="btn-group">
-        <a href="/tasks" class="btn btn-secondary">← Back</a>
-        <button onclick="triggerTask()" class="btn">Trigger Task</button>
-        <a href="/edit_task?id={{ taskId }}" class="btn">Edit</a>
+    <div class="page-title-group">
+        <h1 class="page-title">
+            <span id="hdr-task-name">{{ taskName }}</span>
+            <span id="hdr-status-pill"></span>
+            <span id="hdr-type-pill"></span>
+        </h1>
+        <p class="page-subtitle" id="hdr-description"></p>
+    </div>
+    <div class="header-actions">
+        <label class="toggle-row" style="padding:6px 12px;gap:10px;cursor:pointer;">
+            <span style="font-size:13px;font-weight:500;">Enabled</span>
+            <label class="switch">
+                <input type="checkbox" id="task-enabled-toggle" onchange="toggleTaskEnabled(this)">
+                <span class="slider"></span>
+            </label>
+        </label>
+        <button type="button" class="btn btn-sm btn-danger-soft" onclick="deleteThisTask()">Delete</button>
     </div>
 </div>
 
-<div class="grid">
-    <div class="section">
-        <h3>Task Information</h3>
-        <dl class="details">
-            <dt>ID</dt>
-            <dd id="task-id">{{ taskId }}</dd>
-            <dt>Name</dt>
-            <dd id="task-name">-</dd>
-            <dt>Description</dt>
-            <dd id="task-description">-</dd>
-            <dt>Type</dt>
-            <dd id="task-type">-</dd>
-            <dt>Status</dt>
-            <dd id="task-status">-</dd>
-            <dt>Next Run</dt>
-            <dd id="task-next">-</dd>
-            <dt>SSH Host</dt>
-            <dd id="task-ssh">-</dd>
-        </dl>
+<div class="two-col-grid">
+    <!-- Task Info -->
+    <div class="card" style="margin-bottom:0">
+        <div class="card-header">
+            <div class="card-title">Task Configuration</div>
+            <span class="muted mono" style="font-size:12px;">ID #{{ taskId }}</span>
+        </div>
+        <div class="card-body">
+            <div class="meta-grid" id="task-meta-grid"></div>
+        </div>
     </div>
 
-    <div class="section">
-        <h3>Execution History</h3>
-        <canvas id="historyChart" style="max-height: 200px; width: 100%;"></canvas>
+    <!-- Recent Performance SVG Chart -->
+    <div class="card" style="margin-bottom:0">
+        <div class="card-header">
+            <div class="card-title">Recent Run Durations</div>
+            <span id="perf-summary" class="muted" style="font-size:12.5px;"></span>
+        </div>
+        <div class="card-body">
+            <div class="chart-wrap" id="duration-chart"></div>
+            <div class="chart-legend">
+                <span><i class="legend-swatch" style="background:var(--success)"></i>Success</span>
+                <span><i class="legend-swatch" style="background:var(--danger)"></i>Failed</span>
+                <span><i class="legend-swatch" style="background:var(--info)"></i>Running</span>
+                <span><i class="legend-swatch" style="background:var(--text-muted)"></i>Cancelled/Lost</span>
+                <span class="muted" style="margin-left:auto;">Click any bar to view log</span>
+            </div>
+        </div>
     </div>
 </div>
 
-<div class="section">
-    <h3>Jobs</h3>
-    <div class="table-container">
-        <table id="jobs-table">
+<!-- Jobs Table -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">
+            <span>Jobs</span>
+            <span id="jobs-mode-badge"></span>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table>
             <thead>
                 <tr>
-                    <th>Name</th>
+                    <th style="width:48px">#</th>
+                    <th>Job Name</th>
                     <th>Command</th>
-                    <th>Actions</th>
+                    <th>Last Run</th>
+                    <th class="align-right">Actions</th>
                 </tr>
             </thead>
-            <tbody id="jobs-body">
-                <tr>
-                    <td colspan="5" class="loading">Loading...</td>
-                </tr>
-            </tbody>
+            <tbody id="jobs-body"></tbody>
         </table>
     </div>
 </div>
 
-<div class="section">
-    <h3>Configuration</h3>
-    <pre><code class="language-yaml" id="task-config">Loading...</code></pre>
+<!-- Recent Executions for This Task -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">Recent Executions</div>
+        <a href="/executions?taskId={{ taskId }}" class="btn btn-xs btn-ghost">Filter in Executions &rarr;</a>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Job</th>
+                    <th>Status</th>
+                    <th>Started</th>
+                    <th>Duration</th>
+                    <th>PID</th>
+                    <th class="align-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="task-execs-body"></tbody>
+        </table>
+    </div>
 </div>
 
+<!-- Collapsible YAML Source -->
+<div class="card">
+    <div class="card-header" style="cursor:pointer" onclick="toggleYamlPanel()">
+        <div class="card-title">
+            <span>YAML Definition</span>
+            <span id="yaml-path" class="muted mono" style="font-size:12px;font-weight:400;"></span>
+        </div>
+        <div class="header-actions" onclick="event.stopPropagation()">
+            <button type="button" class="btn btn-xs btn-secondary" onclick="copyYaml()">Copy YAML</button>
+            <button type="button" id="yaml-toggle-btn" class="btn btn-xs btn-ghost" onclick="toggleYamlPanel()">Show</button>
+        </div>
+    </div>
+    <div id="yaml-panel" class="card-body" style="display:none">
+        <pre id="task-yaml-code" class="log-terminal wrap" style="max-height:420px;margin:0;"></pre>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
     const taskId = {{ taskId }};
-    const task = {{ taskJson }};
-    const jobs = {{ jobsJson }};
-    const jobIds = {{ jobsIdJson }};
-    const executions = {{ executionsJson }};
-    const nextRunTime = {{ nextRunTime }};
-    const executionsByJob = {{ executionsByJobJson }};
-    const executionIdsByJob = {{ executionIdsByJobJson }};
+    let state = {{ initialJson }};
+    let yamlExpanded = false;
 
-    async function loadTaskDetails() {
-        document.getElementById('task-name').textContent = task.name;
-        document.getElementById('task-description').textContent = task.description || 'N/A';
-        document.getElementById('task-type').innerHTML = `<span class="badge">${task.taskType}</span>`;
-        document.getElementById('task-status').innerHTML = `<span class="status-badge ${task.enabled ? 'success' : 'failed'}">${task.enabled ? 'Enabled' : 'Disabled'}</span>`;
-        document.getElementById('task-next').textContent = nextRunTime;
-        document.getElementById('task-ssh').textContent = task.sshHost ? `${task.sshUser}@${task.sshHost}` : 'N/A';
-
-        // Show Schedule info based on type
-        let details = document.querySelector('.details');
-
-        // Map internal enum to display names
-        const scheduleTypeMap = {
-            'stCron': 'Cron',
-            'stTime': 'Time of Day',
-            'stInterval': 'Interval',
-            'stOnStart': 'On Start'
-        };
-        const scheduleTypeName = scheduleTypeMap[task.scheduleType] || task.scheduleType;
-
-        // Conditionally show schedule details based on type
-        if (task.scheduleType === 'stCron' || task.scheduleType === 'cron') {
-            details.innerHTML += `<dt>Schedule Type</dt><dd><span class="badge">${scheduleTypeName}</span></dd>`;
-            details.innerHTML += `<dt>Cron Expression</dt><dd><code>${task.cronExpr || 'N/A'}</code></dd>`;
-        } else if (task.scheduleType === 'stTime' || task.scheduleType === 'time') {
-            details.innerHTML += `<dt>Schedule Type</dt><dd><span class="badge">${scheduleTypeName}</span></dd>`;
-            details.innerHTML += `<dt>Time of Day</dt><dd>${task.timeOfDay || 'N/A'}</dd>`;
-        } else if (task.scheduleType === 'stInterval' || task.scheduleType === 'interval') {
-            details.innerHTML += `<dt>Schedule Type</dt><dd><span class="badge">${scheduleTypeName}</span></dd>`;
-            details.innerHTML += `<dt>Interval</dt><dd>${task.intervalMinutes}m</dd>`;
-            if (task.intervalStart && task.intervalEnd) {
-                details.innerHTML += `<dt>Active Window</dt><dd>${task.intervalStart} - ${task.intervalEnd}</dd>`;
-            }
-        }
-
-        // Always show timezone
-        details.innerHTML += `<dt>Timezone</dt><dd>${task.timezone || 'Server Local Time'}</dd>`;
-
-        // Show calendar file if specified and supported (Time/Interval)
-        if (task.calendarPath && (task.scheduleType === 'stTime' || task.scheduleType === 'time' || task.scheduleType === 'stInterval' || task.scheduleType === 'interval')) {
-            details.innerHTML += `<dt>Calendar File</dt><dd><code>${task.calendarPath}</code></dd>`;
-        }
-
-        // Show Source Content
-        const configEl = document.getElementById('task-config');
-        if (task.sourceContent) {
-            configEl.textContent = task.sourceContent;
-            Prism.highlightElement(configEl);
+    function renderBreadcrumbs() {
+        const task = state.task || {};
+        const folder = (task.groupName || '').replaceAll('\\', '/').replace(/^\/+|\/+$/g, '');
+        const wrap = document.getElementById('bc-folder-wrap');
+        if (folder) {
+            wrap.innerHTML = `<span class="sep">/</span> <a href="/tasks?folder=${encodeURIComponent(folder)}">${escapeHtml(folder)}</a>`;
         } else {
-            configEl.textContent = "# No source file or content available";
+            wrap.innerHTML = '';
         }
+        document.getElementById('bc-task-name').textContent = task.name || `Task #${taskId}`;
     }
 
-    async function loadJobs() {
-        // Ensure jobs is always an array
-        if (!Array.isArray(jobs)) {
-            console.error('Jobs is not an array:', jobs);
-            const tbody = document.getElementById('jobs-body');
-            tbody.innerHTML = '<tr><td colspan="3" class="error">Error loading jobs</td></tr>';
-            return;
+    function renderHeaderAndMeta() {
+        const task = state.task || {};
+        document.getElementById('hdr-task-name').textContent = task.name || `Task #${taskId}`;
+        document.getElementById('hdr-description').textContent = task.description || 'No description provided.';
+        document.getElementById('hdr-status-pill').innerHTML = state.isRunning
+            ? formatStatus('Running')
+            : `<span class="status-badge ${task.enabled ? 'success' : 'cancelled'}"><span class="dot"></span>${task.enabled ? 'Enabled' : 'Paused'}</span>`;
+        document.getElementById('hdr-type-pill').innerHTML =
+            `<span class="badge">${escapeHtml(task.taskType || 'local')}</span>` +
+            (task.parallel ? ` <span class="badge primary">Parallel</span>` : ` <span class="badge">Sequential</span>`);
+
+        document.getElementById('task-enabled-toggle').checked = !!task.enabled;
+
+        const nextTimeStr = task.enabled ? formatTime(state.nextRunTime) : 'Paused';
+        const nextRel = task.enabled && parseTime(state.nextRunTime) ? ` (${formatRelativeTime(state.nextRunTime)})` : '';
+
+        const items = [
+            { label: 'Schedule', value: formatScheduleSummary(task) },
+            { label: 'Next Run', value: `<span class="tabular">${escapeHtml(nextTimeStr)}<span class="muted">${escapeHtml(nextRel)}</span></span>` },
+            { label: 'Timezone', value: escapeHtml(task.timezone || 'Server Local Time') },
+            { label: 'Execution Mode', value: task.parallel ? 'Parallel (all jobs run together)' : 'Sequential (chained on success)' }
+        ];
+
+        if (task.taskType === 'remote') {
+            const sshStr = task.sshHost ? `${task.sshUser || 'root'}@${task.sshHost}:${task.sshPort || 22}` : 'Not configured';
+            items.push({ label: 'SSH Target', value: `<code>${escapeHtml(sshStr)}</code>` });
+            if (task.sshKeyPath) {
+                items.push({ label: 'SSH Key', value: `<code>${escapeHtml(task.sshKeyPath)}</code>` });
+            }
+        }
+        if (task.calendarPath) {
+            items.push({ label: 'Calendar File', value: `<code>${escapeHtml(task.calendarPath)}</code>`, full: true });
         }
 
-        const tbody = document.getElementById('jobs-body');
-        if (jobs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="3" class="no-data">No jobs found</td></tr>';
-            return;
-        }
-
-        // Removed Schedule column
-        tbody.innerHTML = jobs.map((job, idx) => `
-        <tr>
-            <td>${jobIds[idx]}</td>
-            <td>${job.name}</td>
-            <td><code>${job.command}</code></td>
-            <td class="actions-cell">
-                <a href="/job_history?id=${jobIds[idx]}" class="btn btn-sm">History</a>
-                ${executionIdsByJob[idx].length > 0 ? `<a href="/execution_log?id=${executionIdsByJob[idx][executionIdsByJob[idx].length - 1]}" class="btn btn-sm">Log</a>` : ''}
-                <button onclick="triggerJob(${jobIds[idx]})" class="btn btn-sm">Run Now</button>
-            </td>
-        </tr>
+        document.getElementById('task-meta-grid').innerHTML = items.map(it => `
+            <div class="meta-item ${it.full ? 'full' : ''}">
+                <div class="meta-label">${it.label}</div>
+                <div class="meta-value">${it.value}</div>
+            </div>
         `).join('');
 
-        // Load history for chart
-        if (jobs.length > 0) {
-            renderChart();
-        }
+        document.getElementById('yaml-path').textContent = task.sourceFile || '';
+        document.getElementById('task-yaml-code').textContent = state.sourceContent || '';
     }
 
     function renderChart() {
-        const ctx = document.getElementById('historyChart').getContext('2d');
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: executions.map(h => formatTime(h.startTime)),
-                datasets: [{
-                    label: 'Duration (s)',
-                    data: executions.map(h => (parseTime(h.endTime) - parseTime(h.startTime)) / 1000),
-                    borderColor: '#2563eb',
-                    tension: 0.1
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: { legend: { display: false } },
-                scales: { y: { beginAtZero: true } }
-            }
+        const container = document.getElementById('duration-chart');
+        const summary = document.getElementById('perf-summary');
+        const execs = (state.recentExecutions || []).slice(0, 20).reverse();
+
+        if (execs.length === 0) {
+            summary.textContent = 'No executions yet';
+            container.innerHTML = `<div class="empty-state" style="padding:28px 12px;"><div class="empty-state-sub">Run this task to see duration trends.</div></div>`;
+            return;
+        }
+
+        const durations = execs.map(e => {
+            const ms = computeDurationMs(e.startTime, e.endTime, e.status);
+            return Math.max(0.2, (ms || 0) / 1000);
+        });
+        const maxDur = Math.max(...durations, 1);
+
+        const finished = execs.filter(e => e.status === 'Success' || e.status === 'Failed');
+        const passed = finished.filter(e => e.status === 'Success').length;
+        const avgSec = durations.reduce((a, b) => a + b, 0) / durations.length;
+        summary.textContent = `${finished.length ? Math.round((passed / finished.length) * 100) + '% pass · ' : ''}avg ${formatDurationMs(avgSec * 1000)}`;
+
+        const w = 520;
+        const h = 150;
+        const padL = 8, padR = 8, padT = 14, padB = 22;
+        const plotW = w - padL - padR;
+        const plotH = h - padT - padB;
+        const step = plotW / execs.length;
+        const barW = Math.max(8, Math.min(26, step - 6));
+
+        const colorFor = (st) => {
+            if (st === 'Success') return 'var(--success)';
+            if (st === 'Failed') return 'var(--danger)';
+            if (st === 'Running') return 'var(--info)';
+            return 'var(--text-muted)';
+        };
+
+        const bars = execs.map((e, i) => {
+            const sec = durations[i];
+            const bh = Math.max(6, Math.round((sec / maxDur) * plotH));
+            const x = padL + i * step + (step - barW) / 2;
+            const y = padT + (plotH - bh);
+            const tip = `#${e.id} ${e.jobName} — ${e.status} (${formatDurationMs(sec * 1000)}) at ${formatShortTime(e.startTime)}`;
+            return `<g style="cursor:pointer" onclick="openLogDrawer(${e.id}, { onStatusChange: () => poller.refresh() })">
+                <title>${escapeHtml(tip)}</title>
+                <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh}" rx="4" fill="${colorFor(e.status)}" opacity="0.9"></rect>
+            </g>`;
+        }).join('');
+
+        container.innerHTML = `
+            <svg viewBox="0 0 ${w} ${h}" width="100%" height="160" role="img" aria-label="Recent run durations">
+                <line x1="${padL}" y1="${padT + plotH}" x2="${w - padR}" y2="${padT + plotH}" stroke="var(--border)" stroke-width="1"/>
+                <line x1="${padL}" y1="${padT}" x2="${w - padR}" y2="${padT}" stroke="var(--border)" stroke-dasharray="3 3" stroke-width="1"/>
+                <text x="${w - padR}" y="${padT - 3}" text-anchor="end" fill="var(--text-muted)" font-size="10" font-family="var(--font-mono)">max ${formatDurationMs(maxDur * 1000)}</text>
+                ${bars}
+                <text x="${padL}" y="${h - 4}" fill="var(--text-muted)" font-size="10">Older</text>
+                <text x="${w - padR}" y="${h - 4}" text-anchor="end" fill="var(--text-muted)" font-size="10">Latest</text>
+            </svg>
+        `;
+    }
+
+    function renderJobs() {
+        const jobs = state.jobs || [];
+        const task = state.task || {};
+        document.getElementById('jobs-mode-badge').innerHTML =
+            `<span class="badge">${jobs.length} job${jobs.length === 1 ? '' : 's'}</span>`;
+
+        const tbody = document.getElementById('jobs-body');
+        if (jobs.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="empty-state-title">No jobs configured</div></div></td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = jobs.map((job, idx) => {
+            const last = job.lastExecution;
+            const safeNameJs = escapeHtml(job.name).replace(/'/g, "\\'");
+            const lastHtml = job.isRunning
+                ? `${formatStatus('Running', job.runningExecId)}`
+                : (last
+                    ? `${formatStatus(last.status, last.id)} <span class="muted" style="font-size:12px;margin-left:6px;">${formatRelativeTime(last.startTime)}</span>`
+                    : `<span class="muted">Never run</span>`);
+            const logId = job.isRunning ? job.runningExecId : (last ? last.id : null);
+
+            return `
+                <tr>
+                    <td class="tabular mono muted">${idx + 1}</td>
+                    <td><strong>${escapeHtml(job.name)}</strong></td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:6px;max-width:460px;">
+                            <code class="truncate" style="display:block;max-width:420px;" title="${escapeHtml(job.command)}">${escapeHtml(job.command)}</code>
+                        </div>
+                    </td>
+                    <td>${lastHtml}</td>
+                    <td>
+                        <div class="cell-actions">
+                            <button type="button" class="btn btn-xs btn-success-soft" onclick="runJob(${job.id}, '${safeNameJs}')">Run Now</button>
+                            ${logId ? `<button type="button" class="btn btn-xs btn-secondary" onclick="openLogDrawer(${logId}, { onStatusChange: () => poller.refresh() })">Log</button>` : ''}
+                            <a href="/job_history?id=${job.id}" class="btn btn-xs btn-ghost">History</a>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function renderExecutions() {
+        const execs = state.recentExecutions || [];
+        const tbody = document.getElementById('task-execs-body');
+        if (execs.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-state-title">No executions recorded yet</div><div class="empty-state-sub">Click "Run Task" above to trigger a run and inspect logs live.</div></div></td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = execs.map(exec => `
+            <tr>
+                <td class="tabular mono muted">#${exec.id}</td>
+                <td>${exec.jobId > 0 ? `<a href="/job_history?id=${exec.jobId}">${escapeHtml(exec.jobName)}</a>` : escapeHtml(exec.jobName)}</td>
+                <td>${formatStatus(exec.status, exec.id)}</td>
+                <td class="tabular" title="${escapeHtml(formatTime(exec.startTime))}">
+                    ${formatShortTime(exec.startTime)}
+                    <span class="muted" style="font-size:11.5px;margin-left:4px;">(${formatRelativeTime(exec.startTime)})</span>
+                </td>
+                <td>${formatDurationCell(exec.startTime, exec.endTime, exec.status)}</td>
+                <td class="mono muted">${exec.pid || '—'}</td>
+                <td>
+                    <div class="cell-actions">
+                        <button type="button" class="btn btn-xs btn-secondary" onclick="openLogDrawer(${exec.id}, { onStatusChange: () => poller.refresh() })">Log</button>
+                        ${exec.status === 'Running' ? `<button type="button" class="btn btn-xs btn-danger-soft" onclick="cancelExec(${exec.id})">Cancel</button>` : ''}
+                        <button type="button" class="btn btn-xs btn-ghost" onclick="deleteExec(${exec.id})">Delete</button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function renderAll() {
+        renderBreadcrumbs();
+        renderHeaderAndMeta();
+        renderChart();
+        renderJobs();
+        renderExecutions();
+    }
+
+    function runTask() {
+        const task = state.task || {};
+        triggerTaskInPlace(taskId, task.name, {
+            onTriggered: () => poller.refresh()
         });
     }
 
-    async function triggerTask() {
-        showConfirmModal('Trigger Task', 'Trigger all jobs in this task sequentially?', async () => {
-            try {
-                const response = await fetch(`/api/trigger_task?id=${taskId}`, { method: 'POST' });
-                if (response.ok) {
-                    console.log('Task triggered successfully');
-                    window.location.reload();
-                } else {
-                    const data = await response.json();
-                    alert('Failed to trigger task: ' + (data.error || 'Unknown error'));
+    function runJob(jobId, jobName) {
+        triggerJobInPlace(jobId, jobName, {
+            onTriggered: () => poller.refresh()
+        });
+    }
+
+    async function toggleTaskEnabled(cb) {
+        const enabled = cb.checked;
+        try {
+            await apiJson(`/api/toggle_task?id=${taskId}&enabled=${enabled}`, { method: 'POST' });
+            showToast({ title: enabled ? 'Task enabled' : 'Task paused', type: 'success', duration: 2800 });
+            poller.refresh();
+        } catch (err) {
+            cb.checked = !enabled;
+            showToast({ title: 'Toggle failed', message: err.message, type: 'error' });
+        }
+    }
+
+    function deleteThisTask() {
+        const task = state.task || {};
+        showConfirmModal({
+            title: 'Delete Task',
+            message: `Permanently delete "${task.name}" and its YAML file?`,
+            confirmText: 'Delete Task',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await apiJson(`/api/delete_task?id=${taskId}`, { method: 'POST' });
+                    const folder = (task.groupName || '').replaceAll('\\', '/').replace(/^\/+|\/+$/g, '');
+                    window.location.href = folder ? `/tasks?folder=${encodeURIComponent(folder)}` : '/tasks';
+                } catch (err) {
+                    showToast({ title: 'Delete failed', message: err.message, type: 'error' });
                 }
-            } catch (error) {
-                alert('Failed to trigger task: ' + error);
             }
         });
     }
 
-    async function triggerJob(jobId) {
-        showConfirmModal('Trigger Job', 'Trigger this job now?', async () => {
-            try {
-                await fetch(`/api/trigger_job?id=${jobId}`, { method: 'POST' });
-                console.log('Job triggered successfully');
-                window.location.href = '/job_history?id=' + jobId;
-            } catch (error) {
-                alert('Failed to trigger job: ' + error);
+    function cancelExec(execId) {
+        showConfirmModal({
+            title: 'Cancel Execution',
+            message: `Stop running execution #${execId}?`,
+            confirmText: 'Cancel Run',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await apiJson(`/api/cancel_execution?id=${execId}`, { method: 'POST' });
+                    showToast({ title: `Cancelled execution #${execId}`, type: 'warning' });
+                    poller.refresh();
+                } catch (err) {
+                    showToast({ title: 'Cancel failed', message: err.message, type: 'error' });
+                }
             }
         });
     }
 
-    loadTaskDetails();
-    loadJobs();
+    function deleteExec(execId) {
+        showConfirmModal({
+            title: 'Delete Execution',
+            message: `Delete execution #${execId} and its log?`,
+            confirmText: 'Delete',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await apiJson(`/api/delete_execution?id=${execId}`, { method: 'POST' });
+                    showToast({ title: `Deleted execution #${execId}`, type: 'success', duration: 2800 });
+                    poller.refresh();
+                } catch (err) {
+                    showToast({ title: 'Delete failed', message: err.message, type: 'error' });
+                }
+            }
+        });
+    }
+
+    function toggleYamlPanel() {
+        yamlExpanded = !yamlExpanded;
+        document.getElementById('yaml-panel').style.display = yamlExpanded ? 'block' : 'none';
+        document.getElementById('yaml-toggle-btn').textContent = yamlExpanded ? 'Hide' : 'Show';
+    }
+
+    function copyYaml() {
+        navigator.clipboard.writeText(state.sourceContent || '')
+            .then(() => showToast({ title: 'YAML copied to clipboard', type: 'success', duration: 2500 }))
+            .catch(() => showToast({ title: 'Copy failed', type: 'error' }));
+    }
+
+    renderAll();
+
+    const poller = createAutoPoller(async () => {
+        const fresh = await apiJson(`/api/task?id=${taskId}`);
+        if (fresh) {
+            state = fresh;
+            renderAll();
+        }
+    }, {
+        intervalMs: 5000,
+        fastIntervalMs: 2000,
+        isFast: () => !!state.isRunning
+    });
 </script>
-<style>
-    .actions-cell {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        vertical-align: middle;
-        min-height: 2.5rem;
-    }
-
-    .actions-cell .btn,
-    .actions-cell button {
-        display: inline-flex;
-        align-items: center;
-        white-space: nowrap;
-        height: fit-content;
-        min-height: 2rem;
-        line-height: 1.5;
-        padding: 0.25rem 0.75rem;
-        box-sizing: border-box;
-    }
-</style>
 {% endblock %}

@@ -1,84 +1,104 @@
 {% extends "base.html" %}
 
+{% block title %}Users — Job Scheduler{% endblock %}
 
-{% block title %}Users - Job Scheduler{% endblock %}
+{% block breadcrumbs %}
+<span class="current">Users</span>
+{% endblock %}
+
+{% block topbar_actions %}
+<button type="button" class="btn btn-sm btn-primary" onclick="openCreateModal()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    <span>New User</span>
+</button>
+{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h2>Users</h2>
-    <button onclick="showCreateUser()" class="btn">+ New User</button>
+    <div class="page-title-group">
+        <h1 class="page-title">Users</h1>
+        <p class="page-subtitle">Manage web UI accounts and credentials.</p>
+    </div>
 </div>
 
-<div class="section">
-    <div class="table-container">
-        <table id="users-table">
+<div class="card">
+    <div class="table-wrap">
+        <table>
             <thead>
                 <tr>
-                    <th>UserID</th>
+                    <th>ID</th>
                     <th>Username</th>
                     <th>Email</th>
                     <th>Created</th>
                     <th>Updated</th>
-                    <th>Actions</th>
+                    <th class="align-right">Actions</th>
                 </tr>
             </thead>
-            <tbody id="users-body">
-                <tr>
-                    <td colspan="6" class="loading">Loading...</td>
-                </tr>
-            </tbody>
+            <tbody id="users-body"></tbody>
         </table>
     </div>
 </div>
 
-<div id="create-modal" class="modal" style="display:none">
-    <div class="modal-content">
-        <h3>Create New User</h3>
+<!-- Create User Modal -->
+<div id="create-modal" class="modal-overlay" role="dialog" aria-modal="true">
+    <div class="modal-dialog">
+        <div class="modal-header">
+            <h3>Create New User</h3>
+            <button type="button" class="btn btn-ghost btn-icon" onclick="closeCreateModal()">&times;</button>
+        </div>
         <form id="create-user-form">
-            <div class="form-group">
-                <label>Username</label>
-                <input type="text" id="new-username" required>
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+                <div class="form-field">
+                    <label for="new-username">Username</label>
+                    <input type="text" id="new-username" required autocomplete="off">
+                </div>
+                <div class="form-field">
+                    <label for="new-email">Email</label>
+                    <input type="email" id="new-email" required>
+                </div>
+                <div class="form-field">
+                    <label for="new-password">Password</label>
+                    <input type="password" id="new-password" required>
+                </div>
+                <div class="form-field">
+                    <label for="new-password-confirm">Confirm Password</label>
+                    <input type="password" id="new-password-confirm" required>
+                </div>
             </div>
-            <div class="form-group">
-                <label>Email</label>
-                <input type="email" id="new-email" required>
-            </div>
-            <div class="form-group">
-                <label>Password</label>
-                <input type="password" id="new-password" required>
-            </div>
-            <div class="form-group">
-                <label>Confirm Password</label>
-                <input type="password" id="new-password-confirm" required>
-            </div>
-            <div class="btn-group">
-                <button type="submit" class="btn">Create</button>
-                <button type="button" onclick="hideModal()" class="btn btn-secondary">Cancel</button>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeCreateModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="create-submit-btn">Create User</button>
             </div>
         </form>
     </div>
 </div>
 
-<div id="change-password-modal" class="modal" style="display:none">
-    <div class="modal-content">
-        <h3>Change Password</h3>
+<!-- Change Password / Email Modal -->
+<div id="change-password-modal" class="modal-overlay" role="dialog" aria-modal="true">
+    <div class="modal-dialog">
+        <div class="modal-header">
+            <h3 id="edit-user-title">Update Account</h3>
+            <button type="button" class="btn btn-ghost btn-icon" onclick="closePasswordModal()">&times;</button>
+        </div>
         <form id="change-password-form">
             <input type="hidden" id="change-user-id">
-            <div class="form-group">
-                <label>New Password</label>
-                <input type="password" id="change-password" required>
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+                <div class="form-field">
+                    <label for="change-email">Email</label>
+                    <input type="email" id="change-email">
+                </div>
+                <div class="form-field">
+                    <label for="change-password">New Password</label>
+                    <input type="password" id="change-password" required>
+                </div>
+                <div class="form-field">
+                    <label for="change-password-confirm">Confirm Password</label>
+                    <input type="password" id="change-password-confirm" required>
+                </div>
             </div>
-            <div class="form-group">
-                <label>Confirm Password</label>
-                <input type="password" id="change-password-confirm" required>
-            </div>
-            <div class="form-group">
-                <label>Email</label>
-                <input type="email" id="change-email">
-            </div>
-            <div class="btn-group">
-                <button type="submit" class="btn">Update</button>
-                <button type="button" onclick="hidePasswordModal()" class="btn btn-secondary">Cancel</button>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closePasswordModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
             </div>
         </form>
     </div>
@@ -87,79 +107,96 @@
 
 {% block scripts %}
 <script>
-    const users = {{ usersJson }};
-    const userIds = {{ userIdsJson }};
+    let state = {{ initialJson }};
 
-    async function loadUsers() {
+    async function refreshUsers() {
+        const fresh = await apiJson('/api/users');
+        if (fresh) {
+            state = fresh;
+            renderUsers();
+        }
+    }
+
+    function renderUsers() {
+        const users = state.users || [];
+        const currentId = state.currentUserId;
         const tbody = document.getElementById('users-body');
+
         if (users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="no-data">No users found</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-state-title">No users found</div></div></td></tr>`;
             return;
         }
 
-        tbody.innerHTML = users.map((user, index) => `
-        <tr>
-            <td>${userIds[index]}</td>
-            <td>${user.username}</td>
-            <td>${user.email || '-'}</td>
-            <td>${formatTime(user.createdAt)}</td>
-            <td>${formatTime(user.updatedAt)}</td>
-            <td class="actions-cell">
-                <button onclick="showChangePassword(${userIds[index]})" class="btn btn-sm">Change Password</button>
-                <button onclick="deleteUser(${userIds[index]})" class="btn btn-sm btn-danger">Delete</button>
-            </td>
-        </tr>
-    `).join('');
+        tbody.innerHTML = users.map(u => {
+            const isSelf = u.id === currentId;
+            const safeNameJs = escapeHtml(u.username).replace(/'/g, "\\'");
+            return `
+                <tr>
+                    <td class="tabular mono muted">#${u.id}</td>
+                    <td>
+                        <strong>${escapeHtml(u.username)}</strong>
+                        ${isSelf ? ' <span class="badge primary">You</span>' : ''}
+                    </td>
+                    <td>${escapeHtml(u.email || '—')}</td>
+                    <td class="tabular muted">${formatShortTime(u.createdAt)}</td>
+                    <td class="tabular muted">${formatShortTime(u.updatedAt)}</td>
+                    <td>
+                        <div class="cell-actions">
+                            <button type="button" class="btn btn-xs btn-secondary" onclick="openPasswordModal(${u.id})">Update Password</button>
+                            ${!isSelf ? `<button type="button" class="btn btn-xs btn-danger-soft" onclick="deleteUser(${u.id}, '${safeNameJs}')">Delete</button>` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
     }
 
-    function showCreateUser() {
-        document.getElementById('create-modal').style.display = 'flex';
+    function openCreateModal() {
+        document.getElementById('create-user-form').reset();
+        document.getElementById('create-modal').classList.add('open');
+        setTimeout(() => document.getElementById('new-username').focus(), 40);
     }
 
-    function hideModal() {
-        document.getElementById('create-modal').style.display = 'none';
+    function closeCreateModal() {
+        document.getElementById('create-modal').classList.remove('open');
     }
 
-    function showChangePassword(userId) {
-        const userIdx = userIds.indexOf(userId);
+    function openPasswordModal(userId) {
+        const u = (state.users || []).find(x => x.id === userId);
+        document.getElementById('change-password-form').reset();
         document.getElementById('change-user-id').value = userId;
-        document.getElementById('change-email').value = users[userIdx].email;
-        document.getElementById('change-password-modal').style.display = 'flex';
+        document.getElementById('change-email').value = (u && u.email) || '';
+        document.getElementById('edit-user-title').textContent = u ? `Update ${u.username}` : 'Update Password';
+        document.getElementById('change-password-modal').classList.add('open');
     }
 
-    function hidePasswordModal() {
-        document.getElementById('change-password-modal').style.display = 'none';
+    function closePasswordModal() {
+        document.getElementById('change-password-modal').classList.remove('open');
     }
 
     document.getElementById('create-user-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const password = document.getElementById('new-password').value;
         const confirm = document.getElementById('new-password-confirm').value;
-
         if (password !== confirm) {
-            alert('Passwords do not match');
+            showToast({ title: 'Passwords do not match', type: 'error' });
             return;
         }
-
         try {
-            const response = await fetch('/api/create_user', {
+            await apiJson('/api/create_user', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    username: document.getElementById('new-username').value,
-                    email: document.getElementById('new-email').value,
-                    password: password
+                    username: document.getElementById('new-username').value.trim(),
+                    email: document.getElementById('new-email').value.trim(),
+                    password
                 })
             });
-
-            if (response.ok) {
-                hideModal();
-                loadUsers();
-            } else {
-                alert('Failed to create user');
-            }
-        } catch (error) {
-            alert('Error: ' + error);
+            closeCreateModal();
+            showToast({ title: 'User created', type: 'success', duration: 3000 });
+            await refreshUsers();
+        } catch (err) {
+            showToast({ title: 'Failed to create user', message: err.message, type: 'error' });
         }
     });
 
@@ -167,117 +204,55 @@
         e.preventDefault();
         const password = document.getElementById('change-password').value;
         const confirm = document.getElementById('change-password-confirm').value;
-        const email = document.getElementById('change-email').value;
-
         if (password !== confirm) {
-            alert('Passwords do not match');
+            showToast({ title: 'Passwords do not match', type: 'error' });
             return;
         }
-
-        const userId = document.getElementById('change-user-id').value;
-        console.log('Updating user:', userId);
         try {
-            const response = await fetch(`/api/update_user_password`, {
+            await apiJson('/api/update_user_password', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: password, userId: userId, email: email })
+                body: JSON.stringify({
+                    userId: document.getElementById('change-user-id').value,
+                    email: document.getElementById('change-email').value.trim(),
+                    password
+                })
             });
-
-            if (response.ok) {
-                hidePasswordModal();
-                alert('Password updated successfully');
-            } else {
-                alert('Failed to update password');
-            }
-        } catch (error) {
-            alert('Error: ' + error);
+            closePasswordModal();
+            showToast({ title: 'Account updated', type: 'success', duration: 3000 });
+            await refreshUsers();
+        } catch (err) {
+            showToast({ title: 'Update failed', message: err.message, type: 'error' });
         }
     });
 
-    async function deleteUser(userId) {
-        showConfirmModal('Delete User', 'Delete this user?', async () => {
-            console.log('Deleting user:', userId);
-            try {
-                const response = await fetch(`/api/delete_user`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: userId })
-                });
-                if (response.ok) {
-                    loadUsers();
-                } else {
-                    alert('Failed to delete user');
+    function deleteUser(userId, username) {
+        showConfirmModal({
+            title: 'Delete User',
+            message: `Delete user "${username}" and revoke all of their API tokens?`,
+            confirmText: 'Delete User',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await apiJson('/api/delete_user', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId })
+                    });
+                    showToast({ title: `Deleted user "${username}"`, type: 'success', duration: 3000 });
+                    await refreshUsers();
+                } catch (err) {
+                    showToast({ title: 'Delete failed', message: err.message, type: 'error' });
                 }
-            } catch (error) {
-                alert('Error: ' + error);
             }
         });
     }
 
-    loadUsers();
+    ['create-modal', 'change-password-modal'].forEach(id => {
+        const el = document.getElementById(id);
+        el.onclick = (e) => { if (e.target === el) el.classList.remove('open'); };
+    });
+
+    renderUsers();
 </script>
-
-<style>
-    .modal {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.5);
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-    }
-
-    .modal-content {
-        background: var(--bg-card);
-        padding: 2rem;
-        border-radius: 8px;
-        max-width: 500px;
-        width: 90%;
-    }
-
-    .form-group {
-        margin-bottom: 1rem;
-    }
-
-    .form-group label {
-        display: block;
-        margin-bottom: 0.5rem;
-        font-weight: 600;
-        color: var(--text);
-    }
-
-    .form-group input {
-        width: 100%;
-        padding: 0.5rem;
-        border: 1px solid var(--input-border);
-        border-radius: 4px;
-        background: var(--input-bg);
-        color: var(--text);
-    }
-
-    .btn-danger {
-        background: var(--danger);
-    }
-
-    .btn-danger:hover {
-        background: #dc2626;
-    }
-
-    @media (max-width: 768px) {
-        .modal-content {
-            padding: 1.25rem;
-            margin: 1rem;
-            max-height: 90vh;
-            overflow-y: auto;
-        }
-
-        .form-group input {
-            font-size: 16px;
-        }
-    }
-</style>
 {% endblock %}

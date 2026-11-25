@@ -1,150 +1,184 @@
 {% extends "base.html" %}
 
+{% block title %}{{ jobName }} — Job History{% endblock %}
 
-{% block title %}Job History - {{ jobName }}{% endblock %}
+{% block breadcrumbs %}
+<a href="/tasks">Tasks</a>
+<span class="sep">/</span>
+<a href="#" id="bc-task-link">Task</a>
+<span class="sep">/</span>
+<span class="current" id="bc-job-name">{{ jobName }}</span>
+{% endblock %}
+
+{% block topbar_actions %}
+<button type="button" class="btn btn-sm btn-primary" onclick="runThisJob()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    <span>Run Job Now</span>
+</button>
+{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h2>Execution History: {{ jobName }}</h2>
-    <a href="javascript:history.back()" class="btn btn-secondary">← Back</a>
+    <div class="page-title-group">
+        <h1 class="page-title" id="hdr-job-name">{{ jobName }}</h1>
+        <p class="page-subtitle" id="hdr-job-cmd"></p>
+    </div>
+    <div class="header-actions">
+        <a href="#" id="back-task-btn" class="btn btn-sm btn-secondary">&larr; Task Details</a>
+    </div>
 </div>
 
-<div class="section">
-    <div class="search-container"
-        style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
-        <select id="status-filter"
-            style="padding: 0.5rem; border: 1px solid var(--input-border); border-radius: 4px; font-size: 1rem; background: var(--input-bg); color: var(--text);">
+<div class="card">
+    <div class="toolbar">
+        <select id="status-filter" aria-label="Filter by status">
             <option value="">All Statuses</option>
+            <option value="Running">Running</option>
             <option value="Success">Success</option>
             <option value="Failed">Failed</option>
-            <option value="Running">Running</option>
+            <option value="Cancelled">Cancelled</option>
             <option value="Lost">Lost</option>
+            <option value="Scheduled">Scheduled</option>
         </select>
-        <button id="delete-selected-btn" class="btn btn-danger btn-sm" style="display:none" onclick="deleteSelected()">
+        <span id="total-badge" class="badge tabular">0 runs</span>
+        <button type="button" id="delete-selected-btn" class="btn btn-sm btn-danger-soft" style="display:none;margin-left:auto;" onclick="deleteSelected()">
             Delete Selected (<span id="selected-count">0</span>)
         </button>
     </div>
-    <div class="table-container">
-        <table id="history-table">
+    <div class="table-wrap">
+        <table>
             <thead>
                 <tr>
-                    <th style="width:1%"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" title="Select all on this page"></th>
+                    <th style="width:36px"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" aria-label="Select all on page"></th>
                     <th>ID</th>
+                    <th>Status</th>
                     <th>Started</th>
                     <th>Ended</th>
                     <th>Duration</th>
-                    <th>Status</th>
                     <th>PID</th>
-                    <th>Actions</th>
+                    <th class="align-right">Actions</th>
                 </tr>
             </thead>
-            <tbody id="history-body">
-                <tr>
-                    <td colspan="8" class="loading">Loading...</td>
-                </tr>
-            </tbody>
+            <tbody id="history-body"></tbody>
         </table>
     </div>
-    <div id="pagination" class="pagination"
-        style="margin-top: 1rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem;"></div>
+    <div id="pagination" class="pagination-bar" style="display:none"></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    const PAGE_LIMIT = 50;
     const jobId = {{ jobId }};
-    const jobName = "{{ jobName }}";
-    const executions = {{ executionsJson }}.map((exec, idx) => ({
-        ...exec,
-        executionId: {{ executionIdsJson }}[idx]
-    }));
-    const allExecutions = Array.isArray(executions) ? executions : [];
-
-    let filteredExecutions = allExecutions.slice();
-    let currentPage = 1;
+    const urlParams = new URLSearchParams(window.location.search);
+    let state = {{ initialJson }};
+    let statusFilter = urlParams.get('status') || '';
+    let currentPage = Math.max(1, parseInt(urlParams.get('page') || state.page || '1', 10));
+    const pageLimit = state.limit || 50;
     let selectedIds = new Set();
 
-    function calculateDuration(start, end, status) {
-        if (!start) return '-';
-        if (!end) return '-';
-        let endTime = parseTime(end);
-        let startTime = parseTime(start);
-        if (!end || endTime.getFullYear() <= 1970) {
-            if (status === 'Running') {
-                const diff = new Date() - startTime;
-                return formatDuration(diff) + ' (Running)';
-            }
-            return '-';
+    document.getElementById('status-filter').value = statusFilter;
+
+    function syncUrl() {
+        const p = new URLSearchParams({ id: String(jobId) });
+        if (statusFilter) p.set('status', statusFilter);
+        if (currentPage > 1) p.set('page', String(currentPage));
+        window.history.replaceState(null, '', `/job_history?${p.toString()}`);
+    }
+
+    async function fetchPage() {
+        const p = new URLSearchParams({
+            id: String(jobId),
+            page: String(currentPage),
+            limit: String(pageLimit)
+        });
+        if (statusFilter) p.set('status', statusFilter);
+        const fresh = await apiJson(`/api/job_history?${p.toString()}`);
+        if (fresh) {
+            state = fresh;
+            render();
         }
-        const diff = endTime - startTime;
-        return formatDuration(diff);
     }
 
-    function formatDuration(ms) {
-        if (ms < 0) ms = 0;
-        const seconds = Math.floor(ms / 1000);
-        const minutes = Math.floor(seconds / 60);
-        const hours = Math.floor(minutes / 60);
-        if (hours > 0) return `${hours}h ${minutes % 60}m`;
-        if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
-        return `${seconds}s`;
-    }
+    function render() {
+        const job = state.job || {};
+        const items = state.executions || [];
+        const total = state.total || 0;
+        const totalPages = state.totalPages || 1;
 
-    async function cancleExecution(execId) {
-        showConfirmModal('Cancel Execution', 'Are you sure you want to cancel this execution?', async () => {
-            try {
-                const response = await fetch(`/api/cancel_execution?id=${execId}`, { method: 'POST' });
-                if (response.ok) { location.reload(); }
-                else { alert('Failed to cancel execution'); }
-            } catch (error) { alert('Error canceling execution'); }
-        });
-    }
+        const taskUrl = `/task_detail?id=${job.taskId}`;
+        document.getElementById('bc-task-link').href = taskUrl;
+        document.getElementById('bc-task-link').textContent = job.taskName || 'Task';
+        document.getElementById('back-task-btn').href = taskUrl;
+        document.getElementById('hdr-job-name').textContent = job.name || `Job #${jobId}`;
+        document.getElementById('hdr-job-cmd').innerHTML = job.command ? `<code>${escapeHtml(job.command)}</code>` : '';
+        document.getElementById('total-badge').textContent = `${total} run${total === 1 ? '' : 's'}`;
 
-    async function deleteExecution(execId) {
-        showConfirmModal('Delete Execution', 'Are you sure you want to delete this execution and its logs?', async () => {
-            try {
-                const response = await fetch(`/api/delete_execution?id=${execId}`, { method: 'POST' });
-                if (response.ok) { location.reload(); }
-                else { alert('Failed to delete execution'); }
-            } catch (error) { alert('Error deleting execution'); }
-        });
-    }
-
-    async function deleteSelected() {
-        const ids = Array.from(selectedIds);
-        if (ids.length === 0) return;
-        showConfirmModal('Delete Executions', `Are you sure you want to delete ${ids.length} selected execution(s) and their logs?`, async () => {
-            try {
-                const response = await fetch('/api/delete_executions', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ids: ids})
-                });
-                if (response.ok) { window.location.reload(); }
-                else { alert('Failed to delete executions'); }
-            } catch (error) {
-                console.error('Error deleting executions:', error);
-                alert('Error deleting executions');
-            }
-        });
-    }
-
-    function toggleSelectAll(checkbox) {
-        const start = (currentPage - 1) * PAGE_LIMIT;
-        const pageItems = filteredExecutions.slice(start, start + PAGE_LIMIT);
-        if (checkbox.checked) {
-            pageItems.forEach(exec => selectedIds.add(exec.executionId));
-        } else {
-            pageItems.forEach(exec => selectedIds.delete(exec.executionId));
+        const tbody = document.getElementById('history-body');
+        if (items.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="empty-state-title">No execution history</div><div class="empty-state-sub">Click "Run Job Now" to trigger this job and watch its live log.</div></div></td></tr>`;
+            document.getElementById('pagination').style.display = 'none';
+            updateSelectionUI();
+            return;
         }
+
+        tbody.innerHTML = items.map(exec => `
+            <tr>
+                <td><input type="checkbox" ${selectedIds.has(exec.id) ? 'checked' : ''} onchange="toggleSelect(${exec.id}, this.checked)"></td>
+                <td class="tabular mono muted">#${exec.id}</td>
+                <td>${formatStatus(exec.status, exec.id)}</td>
+                <td class="tabular" title="${escapeHtml(formatTime(exec.startTime))}">${formatShortTime(exec.startTime)}</td>
+                <td class="tabular" title="${escapeHtml(formatTime(exec.endTime))}">${exec.status === 'Running' ? '<span class="muted">In progress…</span>' : formatShortTime(exec.endTime)}</td>
+                <td>${formatDurationCell(exec.startTime, exec.endTime, exec.status)}</td>
+                <td class="mono muted">${exec.pid || '—'}</td>
+                <td>
+                    <div class="cell-actions">
+                        <button type="button" class="btn btn-xs btn-secondary" onclick="openLogDrawer(${exec.id}, { onStatusChange: () => poller.refresh() })">Log</button>
+                        ${exec.status === 'Running' ? `<button type="button" class="btn btn-xs btn-danger-soft" onclick="cancelExec(${exec.id})">Cancel</button>` : ''}
+                        <button type="button" class="btn btn-xs btn-ghost" onclick="deleteExec(${exec.id})">Delete</button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+
+        renderPagination(total, totalPages);
         updateSelectionUI();
-        renderTable();
     }
 
-    function toggleSelect(execId, checked) {
-        if (checked) { selectedIds.add(execId); }
-        else { selectedIds.delete(execId); }
+    function renderPagination(total, totalPages) {
+        const el = document.getElementById('pagination');
+        if (totalPages <= 1) { el.style.display = 'none'; return; }
+        el.style.display = 'flex';
+        const from = (currentPage - 1) * pageLimit + 1;
+        const to = Math.min(currentPage * pageLimit, total);
+        let btns = '';
+        if (currentPage > 1) btns += `<button type="button" class="btn btn-xs btn-secondary" onclick="goToPage(${currentPage - 1})">Previous</button>`;
+        const startP = Math.max(1, currentPage - 2);
+        const endP = Math.min(totalPages, currentPage + 2);
+        for (let p = startP; p <= endP; p++) {
+            btns += `<button type="button" class="btn btn-xs ${p === currentPage ? 'btn-primary' : 'btn-secondary'}" ${p === currentPage ? 'disabled' : `onclick="goToPage(${p})"`}>${p}</button>`;
+        }
+        if (currentPage < totalPages) btns += `<button type="button" class="btn btn-xs btn-secondary" onclick="goToPage(${currentPage + 1})">Next</button>`;
+        el.innerHTML = `<span class="tabular">Showing ${from}–${to} of ${total}</span><div class="pagination-btns">${btns}</div>`;
+    }
+
+    function goToPage(p) {
+        currentPage = p;
+        syncUrl();
+        poller.refresh();
+    }
+
+    function runThisJob() {
+        const job = state.job || {};
+        triggerJobInPlace(jobId, job.name, { onTriggered: () => poller.refresh() });
+    }
+
+    function toggleSelectAll(cb) {
+        (state.executions || []).forEach(e => cb.checked ? selectedIds.add(e.id) : selectedIds.delete(e.id));
+        render();
+    }
+
+    function toggleSelect(id, checked) {
+        if (checked) selectedIds.add(id);
+        else selectedIds.delete(id);
         updateSelectionUI();
     }
 
@@ -152,95 +186,90 @@
         const btn = document.getElementById('delete-selected-btn');
         const countEl = document.getElementById('selected-count');
         const selectAll = document.getElementById('select-all');
-        const start = (currentPage - 1) * PAGE_LIMIT;
-        const pageItems = filteredExecutions.slice(start, start + PAGE_LIMIT);
-
-        if (selectedIds.size > 0) {
-            btn.style.display = '';
-            countEl.textContent = selectedIds.size;
-        } else {
-            btn.style.display = 'none';
-        }
-
-        const allOnPageSelected = pageItems.length > 0 && pageItems.every(exec => selectedIds.has(exec.executionId));
-        selectAll.checked = allOnPageSelected;
-        selectAll.indeterminate = !allOnPageSelected && pageItems.some(exec => selectedIds.has(exec.executionId));
+        const items = state.executions || [];
+        btn.style.display = selectedIds.size > 0 ? 'inline-flex' : 'none';
+        countEl.textContent = selectedIds.size;
+        const allSel = items.length > 0 && items.every(e => selectedIds.has(e.id));
+        const someSel = items.some(e => selectedIds.has(e.id));
+        selectAll.checked = allSel;
+        selectAll.indeterminate = !allSel && someSel;
     }
 
-    function applyFilter() {
-        const statusFilter = document.getElementById('status-filter').value;
-        filteredExecutions = allExecutions.filter(exec => {
-            return !statusFilter || exec.status === statusFilter;
+    function cancelExec(execId) {
+        showConfirmModal({
+            title: 'Cancel Execution',
+            message: `Stop running execution #${execId}?`,
+            confirmText: 'Cancel Run',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await apiJson(`/api/cancel_execution?id=${execId}`, { method: 'POST' });
+                    showToast({ title: `Cancelled execution #${execId}`, type: 'warning' });
+                    poller.refresh();
+                } catch (err) {
+                    showToast({ title: 'Cancel failed', message: err.message, type: 'error' });
+                }
+            }
         });
+    }
+
+    function deleteExec(execId) {
+        showConfirmModal({
+            title: 'Delete Execution',
+            message: `Delete execution #${execId} and its log?`,
+            confirmText: 'Delete',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await apiJson(`/api/delete_execution?id=${execId}`, { method: 'POST' });
+                    selectedIds.delete(execId);
+                    showToast({ title: `Deleted execution #${execId}`, type: 'success', duration: 2800 });
+                    poller.refresh();
+                } catch (err) {
+                    showToast({ title: 'Delete failed', message: err.message, type: 'error' });
+                }
+            }
+        });
+    }
+
+    function deleteSelected() {
+        const ids = Array.from(selectedIds);
+        if (!ids.length) return;
+        showConfirmModal({
+            title: 'Delete Selected Executions',
+            message: `Permanently delete ${ids.length} execution(s) and their logs?`,
+            confirmText: `Delete ${ids.length}`,
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await apiJson('/api/delete_executions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ids })
+                    });
+                    selectedIds.clear();
+                    showToast({ title: `Deleted ${ids.length} execution(s)`, type: 'success', duration: 2800 });
+                    poller.refresh();
+                } catch (err) {
+                    showToast({ title: 'Bulk delete failed', message: err.message, type: 'error' });
+                }
+            }
+        });
+    }
+
+    document.getElementById('status-filter').addEventListener('change', (e) => {
+        statusFilter = e.target.value;
         currentPage = 1;
-        renderTable();
-        updatePagination();
-    }
+        syncUrl();
+        poller.refresh();
+    });
 
-    function renderTable() {
-        const tbody = document.getElementById('history-body');
-        if (filteredExecutions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" class="no-data">No execution history found</td></tr>';
-            document.getElementById('pagination').style.display = 'none';
-            return;
-        }
-        const start = (currentPage - 1) * PAGE_LIMIT;
-        const pageItems = filteredExecutions.slice(start, start + PAGE_LIMIT);
-        tbody.innerHTML = pageItems.map(exec => `
-            <tr>
-                <td><input type="checkbox" ${selectedIds.has(exec.executionId) ? 'checked' : ''} onchange="toggleSelect(${exec.executionId}, this.checked)"></td>
-                <td>${exec.executionId}</td>
-                <td>${formatTime(exec.startTime)}</td>
-                <td>${formatTime(exec.endTime)}</td>
-                <td>${calculateDuration(exec.startTime, exec.endTime, exec.status)}</td>
-                <td>${formatStatus(exec.status)}</td>
-                <td>${exec.pid}</td>
-                <td class="actions-cell">
-                    <a href="/execution_log?id=${exec.executionId}" class="btn btn-sm">View Log</a>
-                    <button onclick="deleteExecution(${exec.executionId})" class="btn btn-sm btn-danger">Delete</button>
-                    ${exec.status === 'Running' ? `<button onclick="cancleExecution(${exec.executionId})" class="btn btn-sm btn-danger">Cancel</button>` : ''}
-                </td>
-            </tr>
-        `).join('');
+    render();
 
-        updateSelectionUI();
-    }
-
-    function goToPage(page) {
-        currentPage = page;
-        renderTable();
-        updatePagination();
-    }
-
-    function updatePagination() {
-        const paginationEl = document.getElementById('pagination');
-        const total = filteredExecutions.length;
-        const totalPages = Math.ceil(total / PAGE_LIMIT);
-
-        if (totalPages <= 1) { paginationEl.style.display = 'none'; return; }
-
-        paginationEl.style.display = 'flex';
-        const page = currentPage;
-        let html = `<span style="margin-right: 1rem;">Showing ${(page - 1) * PAGE_LIMIT + 1}-${Math.min(page * PAGE_LIMIT, total)} of ${total}</span>`;
-
-        if (page > 1) html += `<button class="btn btn-sm" onclick="goToPage(${page - 1})">Previous</button>`;
-
-        let startPage = Math.max(1, page - 2);
-        let endPage = Math.min(totalPages, page + 2);
-        if (startPage > 1) { html += `<button class="btn btn-sm" onclick="goToPage(1)">1</button>`; if (startPage > 2) html += `<span>...</span>`; }
-        for (let p = startPage; p <= endPage; p++) {
-            if (p === page) html += `<button class="btn btn-sm" style="background: var(--primary); opacity: 0.8;" disabled>${p}</button>`;
-            else html += `<button class="btn btn-sm" onclick="goToPage(${p})">${p}</button>`;
-        }
-        if (endPage < totalPages) { if (endPage < totalPages - 1) html += `<span>...</span>`; html += `<button class="btn btn-sm" onclick="goToPage(${totalPages})">${totalPages}</button>`; }
-        if (page < totalPages) html += `<button class="btn btn-sm" onclick="goToPage(${page + 1})">Next</button>`;
-
-        paginationEl.innerHTML = html;
-    }
-
-    document.getElementById('status-filter').addEventListener('input', applyFilter);
-
-    renderTable();
-    updatePagination();
+    const poller = createAutoPoller(fetchPage, {
+        intervalMs: 5000,
+        fastIntervalMs: 2000,
+        isFast: () => (state.executions || []).some(e => e.status === 'Running')
+    });
 </script>
 {% endblock %}
