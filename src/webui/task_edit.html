@@ -1,184 +1,205 @@
 {% extends "base.html" %}
 
+{% block title %}{{ if isNew: "New Task" else: "Edit Task" }} — Job Scheduler{% endblock %}
 
-{% block title %}Edit Task - Job Scheduler{% endblock %}
+{% block breadcrumbs %}
+<a href="/tasks">Tasks</a>
+<span class="sep">/</span>
+<span class="current" id="bc-mode">{{ if isNew: "New Task" else: "Edit Task" }}</span>
+{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h2 id="page-title">Edit Task</h2>
-    <a href="/tasks" class="btn btn-secondary">Cancel</a>
-</div>
+<div class="form-shell">
+    <div class="page-header">
+        <div class="page-title-group">
+            <h1 class="page-title" id="page-title">{{ if isNew: "New Task" else: "Edit Task" }}</h1>
+            <p class="page-subtitle">Configure jobs, execution environment, and schedule trigger.</p>
+        </div>
+        <div class="header-actions">
+            <a href="{{ if isNew: "/tasks" else: "/task_detail?id=" & $taskId }}" id="cancel-link" class="btn btn-sm btn-secondary">Cancel</a>
+        </div>
+    </div>
 
-<div class="section">
     <form id="task-form">
-        <div class="form-container">
-            <!-- General Settings -->
-            <h3 class="section-title">General Information</h3>
-            <div class="form-row">
-                <label for="name">Task Name</label>
-                <div class="input-wrapper">
-                    <input type="text" id="name" name="name" required placeholder="My Daily Cleanup">
-                </div>
+        <!-- General -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">General</div>
             </div>
-
-            <div class="form-row">
-                <label for="description">Description</label>
-                <div class="input-wrapper">
-                    <textarea id="description" name="description" rows="2"
-                        placeholder="Describe what this task does..."></textarea>
-                </div>
-            </div>
-
-            <div class="form-row">
-                <label>Commands</label>
-                <div class="input-wrapper">
-                    <div id="commands-container">
-                        <div class="command-item">
-                            <textarea name="command" rows="3" required placeholder="/path/to/script.sh"
-                                class="code-font command-input"></textarea>
-                            <button type="button" class="btn btn-sm btn-danger remove-command" style="display:none;"
-                                onclick="removeCommand(this)">Remove</button>
+            <div class="card-body">
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label for="name">Task Name *</label>
+                        <input type="text" id="name" required placeholder="e.g. DailyDatabaseBackup">
+                    </div>
+                    <div class="form-field">
+                        <label for="groupName">Folder / Group</label>
+                        <input type="text" id="groupName" placeholder="e.g. ops/backups (optional)">
+                        <span class="help-text" id="group-help">Organizes the YAML file inside a subfolder of tasksDir.</span>
+                    </div>
+                    <div class="form-field full">
+                        <label for="description">Description</label>
+                        <textarea id="description" rows="2" placeholder="Briefly describe what this task does…"></textarea>
+                    </div>
+                    <div class="form-field">
+                        <div class="toggle-row">
+                            <div>
+                                <div class="toggle-row-title">Enabled</div>
+                                <div class="toggle-row-desc">Run automatically on schedule</div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="enabled" checked>
+                                <span class="slider"></span>
+                            </label>
                         </div>
                     </div>
-                    <button type="button" class="btn btn-sm" onclick="addCommand()" style="margin-top: 0.5rem;">+ Add
-                        Command</button>
-                    <p class="help-text">Each command creates a job. Jobs run sequentially - next job runs only if
-                        previous one succeeds.</p>
-                </div>
-            </div>
-
-            <div class="form-row">
-                <label>Status</label>
-                <div class="input-wrapper">
-                    <label class="switch-label">
-                        <label class="switch">
-                            <input type="checkbox" id="enabled" name="enabled" checked>
-                            <span class="slider"></span>
-                        </label>
-                        <span style="margin-left: 10px">Enabled</span>
-                    </label>
-                </div>
-            </div>
-
-            <div class="separator"></div>
-
-            <!-- Execution Settings -->
-            <h3 class="section-title">Execution Environment</h3>
-            <div class="form-row">
-                <label for="type">Type</label>
-                <div class="input-wrapper">
-                    <select id="type" name="type" required onchange="toggleSshFields()">
-                        <option value="local">Local Execution (Server)</option>
-                        <option value="remote">Remote Execution (SSH)</option>
-                    </select>
-                </div>
-            </div>
-
-            <div id="ssh-fields" style="display:none">
-                <div class="form-row">
-                    <label for="sshHost">SSH Host</label>
-                    <div class="input-wrapper">
-                        <input type="text" id="sshHost" name="sshHost" placeholder="192.168.1.50">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <label for="sshPort">SSH Port</label>
-                    <div class="input-wrapper">
-                        <input type="number" id="sshPort" name="sshPort" value="22" placeholder="22">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <label for="sshUser">SSH User</label>
-                    <div class="input-wrapper">
-                        <input type="text" id="sshUser" name="sshUser" placeholder="root">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <label for="sshKeyPath">SSH Key Filename</label>
-                    <div class="input-wrapper">
-                        <input type="text" id="sshKeyPath" name="sshKeyPath" placeholder="~/.ssh/id_rsa">
-                        <p class="help-text">Path to SSH private key file for authentication.</p>
+                    <div class="form-field">
+                        <div class="toggle-row">
+                            <div>
+                                <div class="toggle-row-title">Parallel Jobs</div>
+                                <div class="toggle-row-desc">Run all jobs at once instead of chaining sequentially</div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="parallel">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- Initial Schedule (Create Only) -->
-            <div id="schedule-section">
-                <div class="separator"></div>
-                <h3 class="section-title">Initial Schedule</h3>
+        <!-- Jobs -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">Jobs &amp; Commands</div>
+                <button type="button" class="btn btn-xs btn-secondary" onclick="addJobRow()">+ Add Job</button>
+            </div>
+            <div class="card-body">
+                <div id="jobs-container"></div>
+                <p class="help-text" id="jobs-mode-hint">In sequential mode, each job runs only after the previous job exits with code 0.</p>
+            </div>
+        </div>
 
-                <div class="form-row">
-                    <label for="scheduleType">Method</label>
-                    <div class="input-wrapper">
-                        <select id="scheduleType" name="scheduleType" onchange="toggleScheduleFields()">
-                            <option value="cron">Cron Expression</option>
-                            <option value="time">Trigger at Time</option>
-                            <option value="interval">Interval (Minutes)</option>
-                            <option value="onstart">On Start</option>
+        <!-- Execution Environment -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">Execution Environment</div>
+            </div>
+            <div class="card-body">
+                <div class="form-grid">
+                    <div class="form-field full">
+                        <label for="type">Target</label>
+                        <select id="type" onchange="toggleSshFields()">
+                            <option value="local">Local Server</option>
+                            <option value="remote">Remote Host (SSH)</option>
                         </select>
                     </div>
                 </div>
-
-                <div class="form-row">
-                    <label for="timezone">Timezone</label>
-                    <div class="input-wrapper">
-                        <input type="text" id="timezone" name="timezone" placeholder="UTC or America/New_York">
-                        <p class="help-text">IANA Timezone name. Leave empty for Server Local Time.</p>
+                <div id="ssh-fields" class="form-grid" style="display:none;margin-top:16px;">
+                    <div class="form-field">
+                        <label for="sshHost">SSH Host *</label>
+                        <input type="text" id="sshHost" placeholder="192.168.1.50 or worker.internal">
+                    </div>
+                    <div class="form-field">
+                        <label for="sshPort">SSH Port</label>
+                        <input type="number" id="sshPort" value="22" min="1" max="65535">
+                    </div>
+                    <div class="form-field">
+                        <label for="sshUser">SSH User *</label>
+                        <input type="text" id="sshUser" placeholder="deploy">
+                    </div>
+                    <div class="form-field">
+                        <label for="sshKeyPath">SSH Private Key Path</label>
+                        <input type="text" id="sshKeyPath" placeholder="~/.ssh/id_rsa">
+                        <span class="help-text">Falls back to default key in config.yaml if blank.</span>
                     </div>
                 </div>
+            </div>
+        </div>
 
-                <div id="cron-field">
-                    <div class="form-row">
-                        <label for="cronExpr">Expression</label>
-                        <div class="input-wrapper">
-                            <input type="text" id="cronExpr" name="cronExpr" placeholder="0 0 * * *">
-                            <p class="help-text">Standard Cron format (e.g. Daily at midnight)</p>
+        <!-- Schedule -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">Schedule</div>
+            </div>
+            <div class="card-body">
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label for="scheduleType">Trigger Type</label>
+                        <select id="scheduleType" onchange="toggleScheduleFields()">
+                            <option value="cron">Cron Expression</option>
+                            <option value="time">Daily at Fixed Time</option>
+                            <option value="interval">Fixed Interval (Minutes)</option>
+                            <option value="onstart">On Scheduler Startup</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label for="timezone">Timezone (IANA)</label>
+                        <input type="text" id="timezone" list="tz-suggestions" placeholder="Leave empty for server local time">
+                        <datalist id="tz-suggestions">
+                            <option value="UTC">
+                            <option value="America/New_York">
+                            <option value="America/Chicago">
+                            <option value="America/Denver">
+                            <option value="America/Los_Angeles">
+                            <option value="Europe/London">
+                            <option value="Europe/Berlin">
+                            <option value="Asia/Tokyo">
+                            <option value="Asia/Shanghai">
+                            <option value="Asia/Singapore">
+                            <option value="Australia/Sydney">
+                        </datalist>
+                    </div>
+
+                    <div id="cron-field" class="form-field full">
+                        <label for="cronExpr">Cron Expression (5-field)</label>
+                        <input type="text" id="cronExpr" class="mono" placeholder="0 9 * * 1-5">
+                        <div class="preset-chips">
+                            <button type="button" class="chip" onclick="setCron('*/5 * * * *')">Every 5m</button>
+                            <button type="button" class="chip" onclick="setCron('0 * * * *')">Hourly</button>
+                            <button type="button" class="chip" onclick="setCron('0 0 * * *')">Daily 00:00</button>
+                            <button type="button" class="chip" onclick="setCron('0 9 * * 1-5')">Weekdays 09:00</button>
+                            <button type="button" class="chip" onclick="setCron('0 2 * * 0')">Sundays 02:00</button>
                         </div>
                     </div>
-                </div>
 
-                <div id="time-field" style="display:none">
-                    <div class="form-row">
-                        <label for="timeOfDay">Time (HH:MM)</label>
-                        <div class="input-wrapper">
-                            <input type="time" id="timeOfDay" name="timeOfDay" value="00:00">
-                            <p class="help-text">Daily trigger at specified time (24-hour format).</p>
-                        </div>
+                    <div id="time-field" class="form-field full" style="display:none">
+                        <label for="timeOfDay">Time of Day (24h)</label>
+                        <input type="time" id="timeOfDay" value="09:00" style="max-width:220px;">
                     </div>
-                </div>
 
-                <div id="interval-field" style="display:none">
-                    <div class="form-row">
-                        <label for="intervalMinutes">Minutes</label>
-                        <div class="input-wrapper">
-                            <input type="number" id="intervalMinutes" name="intervalMinutes" value="60" min="1">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <label>Active Window</label>
-                        <div class="input-wrapper">
-                            <div class="interval-window">
-                                <input type="time" id="intervalStart" name="intervalStart">
-                                <span>to</span>
-                                <input type="time" id="intervalEnd" name="intervalEnd">
+                    <div id="interval-field" class="form-field full" style="display:none">
+                        <div class="form-grid">
+                            <div class="form-field">
+                                <label for="intervalMinutes">Repeat Every (Minutes)</label>
+                                <input type="number" id="intervalMinutes" value="60" min="1">
                             </div>
-                            <p class="help-text">Optional. Only trigger between these times.</p>
+                            <div class="form-field">
+                                <label>Active Window (Optional)</label>
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <input type="time" id="intervalStart">
+                                    <span class="muted">to</span>
+                                    <input type="time" id="intervalEnd">
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <div class="form-row" id="calendar-field">
-                    <label for="calendarPath">Calendar File</label>
-                    <div class="input-wrapper">
-                        <input type="text" id="calendarPath" name="calendarPath" placeholder="/path/to/holidays.txt">
-                        <p class="help-text">Optional. Provide absolute path to an allowlist file (YYYY-MM-DD).</p>
+                    <div id="calendar-field" class="form-field full" style="display:none">
+                        <label for="calendarPath">Calendar Allowlist File (Optional)</label>
+                        <input type="text" id="calendarPath" placeholder="/path/to/business_days.txt">
+                        <span class="help-text">Plain-text file with one allowed date (YYYY-MM-DD) per line.</span>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <div class="form-actions">
-                <button type="submit" class="btn btn-primary" id="save-btn">Create Task</button>
-            </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-bottom:24px;">
+            <a href="{{ if isNew: "/tasks" else: "/task_detail?id=" & $taskId }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" id="save-btn" class="btn btn-primary">
+                {{ if isNew: "Create Task" else: "Save Changes" }}
+            </button>
         </div>
     </form>
 </div>
@@ -188,94 +209,117 @@
 <script>
     const isNew = {{ isNew }};
     const task = {{ taskJson }};
-    const taskId = {{ taskId }}
+    const taskId = {{ taskId }};
+    const urlParams = new URLSearchParams(window.location.search);
 
-    document.getElementById('page-title').textContent = isNew ? 'New Task' : 'Edit Task';
-    document.getElementById('save-btn').textContent = isNew ? 'Create Task' : 'Save Changes';
+    function setCron(expr) {
+        document.getElementById('cronExpr').value = expr;
+    }
 
     function toggleSshFields() {
-        const type = document.getElementById('type').value;
-        document.getElementById('ssh-fields').style.display = type === 'remote' ? 'block' : 'none';
+        const isRemote = document.getElementById('type').value === 'remote';
+        document.getElementById('ssh-fields').style.display = isRemote ? 'grid' : 'none';
     }
 
     function toggleScheduleFields() {
-        const type = document.getElementById('scheduleType').value;
-        document.getElementById('cron-field').style.display = type === 'cron' ? 'block' : 'none';
-        document.getElementById('time-field').style.display = type === 'time' ? 'block' : 'none';
-        document.getElementById('interval-field').style.display = type === 'interval' ? 'block' : 'none';
-
-        // Calendar allowed only for time and interval
-        const allowCalendar = type === 'time' || type === 'interval';
-        document.getElementById('calendar-field').style.display = allowCalendar ? 'block' : 'none';
+        const t = document.getElementById('scheduleType').value;
+        document.getElementById('cron-field').style.display = t === 'cron' ? 'flex' : 'none';
+        document.getElementById('time-field').style.display = t === 'time' ? 'flex' : 'none';
+        document.getElementById('interval-field').style.display = t === 'interval' ? 'flex' : 'none';
+        document.getElementById('calendar-field').style.display = (t === 'time' || t === 'interval') ? 'flex' : 'none';
     }
 
-    function addCommand(value = '') {
-        const container = document.getElementById('commands-container');
-        const newItem = document.createElement('div');
-        newItem.className = 'command-item';
-        newItem.innerHTML = `
-        <textarea name="command" rows="3" required placeholder="/path/to/script.sh" class="code-font command-input"></textarea>
-        <button type="button" class="btn btn-sm btn-danger remove-command" onclick="removeCommand(this)">Remove</button>
-    `;
-        newItem.querySelector('textarea').value = value;
-        container.appendChild(newItem);
-        updateRemoveButtons();
+    function addJobRow(name = '', command = '') {
+        const container = document.getElementById('jobs-container');
+        const idx = container.children.length + 1;
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        card.innerHTML = `
+            <div class="job-card-head">
+                <span class="job-index">${idx}</span>
+                <input type="text" class="job-name-input" placeholder="Job name (e.g. Step ${idx})" style="flex:1;" required>
+                <button type="button" class="btn btn-xs btn-ghost move-up-btn" title="Move up" onclick="moveJob(this, -1)">&uarr;</button>
+                <button type="button" class="btn btn-xs btn-ghost move-down-btn" title="Move down" onclick="moveJob(this, 1)">&darr;</button>
+                <button type="button" class="btn btn-xs btn-danger-soft remove-job-btn" onclick="removeJobRow(this)">Remove</button>
+            </div>
+            <textarea class="code-textarea job-cmd-input" rows="3" required placeholder="echo 'Hello World'"></textarea>
+        `;
+        card.querySelector('.job-name-input').value = name || `Job ${idx}`;
+        card.querySelector('.job-cmd-input').value = command || '';
+        container.appendChild(card);
+        refreshJobIndices();
     }
 
-    function removeCommand(btn) {
-        const container = document.getElementById('commands-container');
-        if (container.children.length > 1) {
-            btn.closest('.command-item').remove();
-            updateRemoveButtons();
+    function removeJobRow(btn) {
+        const container = document.getElementById('jobs-container');
+        if (container.children.length <= 1) return;
+        btn.closest('.job-card').remove();
+        refreshJobIndices();
+    }
+
+    function moveJob(btn, dir) {
+        const card = btn.closest('.job-card');
+        const parent = card.parentElement;
+        if (dir < 0 && card.previousElementSibling) {
+            parent.insertBefore(card, card.previousElementSibling);
+        } else if (dir > 0 && card.nextElementSibling) {
+            parent.insertBefore(card.nextElementSibling, card);
         }
+        refreshJobIndices();
     }
 
-    function updateRemoveButtons() {
-        const container = document.getElementById('commands-container');
-        const removeButtons = container.querySelectorAll('.remove-command');
-        removeButtons.forEach(btn => {
-            btn.style.display = container.children.length > 1 ? 'inline-block' : 'none';
+    function refreshJobIndices() {
+        const cards = Array.from(document.getElementById('jobs-container').children);
+        cards.forEach((c, i) => {
+            c.querySelector('.job-index').textContent = String(i + 1);
+            c.querySelector('.remove-job-btn').style.display = cards.length > 1 ? 'inline-flex' : 'none';
+            c.querySelector('.move-up-btn').disabled = i === 0;
+            c.querySelector('.move-down-btn').disabled = i === cards.length - 1;
         });
     }
 
-    async function loadTask() {
-        if (isNew) return;
-
-        document.getElementById('name').value = task.name;
-        document.getElementById('description').value = task.description || '';
-
-        // Commands
-        const container = document.getElementById('commands-container');
-        container.innerHTML = '';
-
-        // API returns 'jobs' array of {name, command}, not 'commands' array of strings
-        if (task.jobs && task.jobs.length > 0) {
-            task.jobs.forEach(job => addCommand(job.command));
-        } else if (task.commands && task.commands.length > 0) {
-            // Fallback support
-            task.commands.forEach(cmd => addCommand(cmd));
-        } else {
-            addCommand();
+    function initForm() {
+        if (isNew) {
+            const preFolder = urlParams.get('folder') || '';
+            if (preFolder) {
+                document.getElementById('groupName').value = preFolder;
+                document.getElementById('cancel-link').href = `/tasks?folder=${encodeURIComponent(preFolder)}`;
+            }
+            addJobRow('Step 1', '');
+            toggleSshFields();
+            toggleScheduleFields();
+            return;
         }
 
-        // Map Task Type
-        let tType = task.taskType;
-        if (tType === 'remote') tType = 'remote';
-        if (tType === 'local' || !tType) tType = 'local';
+        document.getElementById('name').value = task.name || '';
+        const groupInput = document.getElementById('groupName');
+        groupInput.value = task.groupName || '';
+        groupInput.readOnly = true;
+        groupInput.style.opacity = '0.7';
+        document.getElementById('group-help').textContent = 'Folder is determined by the YAML file path on disk.';
 
-        document.getElementById('type').value = tType;
+        document.getElementById('description').value = task.description || '';
+        document.getElementById('enabled').checked = task.enabled !== false;
+        document.getElementById('parallel').checked = !!task.parallel;
+
+        const container = document.getElementById('jobs-container');
+        container.innerHTML = '';
+        if (task.jobs && task.jobs.length > 0) {
+            task.jobs.forEach((j, idx) => addJobRow(j.name || `Job ${idx + 1}`, j.command || ''));
+        } else {
+            addJobRow('Step 1', '');
+        }
+
+        document.getElementById('type').value = task.taskType === 'remote' ? 'remote' : 'local';
         document.getElementById('sshHost').value = task.sshHost || '';
         document.getElementById('sshPort').value = task.sshPort || 22;
         document.getElementById('sshUser').value = task.sshUser || '';
         document.getElementById('sshKeyPath').value = task.sshKeyPath || '';
-        document.getElementById('enabled').checked = task.enabled;
 
-        // Map Schedule Type (Enum string to value)
-        let sType = task.scheduleType;
-        document.getElementById('scheduleType').value = sType;
-        document.getElementById('cronExpr').value = task.cronExpr || '';
-        document.getElementById('timeOfDay').value = task.timeOfDay || '';
+        document.getElementById('scheduleType').value = task.scheduleType || 'cron';
         document.getElementById('timezone').value = task.timezone || '';
+        document.getElementById('cronExpr').value = task.cronExpr || '';
+        document.getElementById('timeOfDay').value = task.timeOfDay || '09:00';
         document.getElementById('intervalMinutes').value = task.intervalMinutes || 60;
         document.getElementById('intervalStart').value = task.intervalStart || '';
         document.getElementById('intervalEnd').value = task.intervalEnd || '';
@@ -287,259 +331,64 @@
 
     document.getElementById('task-form').addEventListener('submit', async (e) => {
         e.preventDefault();
+        const saveBtn = document.getElementById('save-btn');
+        const jobCards = Array.from(document.querySelectorAll('#jobs-container .job-card'));
+        const jobs = jobCards.map((card, i) => ({
+            name: card.querySelector('.job-name-input').value.trim() || `Job ${i + 1}`,
+            command: card.querySelector('.job-cmd-input').value.trim()
+        })).filter(j => j.command.length > 0);
 
-        // Collect commands
-        const commandInputs = document.querySelectorAll('.command-input');
-        const commands = Array.from(commandInputs).map(input => input.value.trim()).filter(cmd => cmd.length > 0);
-
-        if (commands.length === 0) {
-            alert('At least one command is required');
+        if (jobs.length === 0) {
+            showToast({ title: 'Validation error', message: 'At least one job command is required.', type: 'error' });
             return;
         }
 
-        // Map Task Type string to Nim Enum String representation
-        let tType = document.getElementById('type').value;
-
-        // Basic data
-        const data = {
-            name: document.getElementById('name').value,
-            description: document.getElementById('description').value,
-            // Map commands (strings) to jobs (objects)
-            jobs: commands.map((cmd, idx) => ({
-                name: `Job ${idx + 1}`,
-                command: cmd
-            })),
-            taskType: tType,
-            sshHost: document.getElementById('sshHost').value,
-            sshPort: parseInt(document.getElementById('sshPort').value) || 22,
-            sshUser: document.getElementById('sshUser').value,
-            sshKeyPath: document.getElementById('sshKeyPath').value || '',
+        const payload = {
+            name: document.getElementById('name').value.trim(),
+            groupName: document.getElementById('groupName').value.trim(),
+            description: document.getElementById('description').value.trim(),
+            jobs,
+            taskType: document.getElementById('type').value,
+            sshHost: document.getElementById('sshHost').value.trim(),
+            sshPort: parseInt(document.getElementById('sshPort').value, 10) || 22,
+            sshUser: document.getElementById('sshUser').value.trim(),
+            sshKeyPath: document.getElementById('sshKeyPath').value.trim(),
             enabled: document.getElementById('enabled').checked,
-            sourceFile: task.sourceFile,
-            folder: task.folder
+            parallel: document.getElementById('parallel').checked,
+            scheduleType: document.getElementById('scheduleType').value,
+            timezone: document.getElementById('timezone').value.trim(),
+            cronExpr: document.getElementById('cronExpr').value.trim(),
+            timeOfDay: document.getElementById('timeOfDay').value.trim(),
+            intervalMinutes: parseInt(document.getElementById('intervalMinutes').value, 10) || 0,
+            intervalStart: document.getElementById('intervalStart').value.trim(),
+            intervalEnd: document.getElementById('intervalEnd').value.trim(),
+            calendarPath: document.getElementById('calendarPath').value.trim(),
+            sourceFile: task.sourceFile || '',
+            folder: task.folder || ''
         };
 
-        // Schedule data
-        let sType = document.getElementById('scheduleType').value;
-        data.scheduleType = sType;
-        data.cronExpr = document.getElementById('cronExpr').value || '';
-        data.timeOfDay = document.getElementById('timeOfDay').value || '';
-        data.timezone = document.getElementById('timezone').value || '';
-        data.intervalMinutes = parseInt(document.getElementById('intervalMinutes').value) || 0;
-        data.intervalStart = document.getElementById('intervalStart').value || '';
-        data.intervalEnd = document.getElementById('intervalEnd').value || '';
-        data.calendarPath = document.getElementById('calendarPath').value || '';
-
-        const url = '/api/save_task' + (isNew ? '' : `?id=${taskId}`);
-        const method = 'POST';
-
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
         try {
-            const res = await apiCall(url, {
-                method: method,
+            const url = isNew ? '/api/save_task' : `/api/save_task?id=${taskId}`;
+            const res = await apiJson(url, {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
+                body: JSON.stringify(payload)
             });
-
-            if (res && res.ok) {
-                if (isNew) {
-                    window.location.href = '/tasks';
-                } else {
-                    window.location.href = '/task_detail?id=' + taskId;
-                }
+            const targetId = (res && res.id > 0) ? res.id : taskId;
+            if (targetId > 0) {
+                window.location.href = `/task_detail?id=${targetId}`;
             } else {
-                alert('Failed to save task');
+                window.location.href = '/tasks';
             }
-        } catch (e) {
-            console.error(e);
-            alert('Error saving task');
+        } catch (err) {
+            showToast({ title: 'Failed to save task', message: err.message, type: 'error' });
+            saveBtn.disabled = false;
+            saveBtn.textContent = isNew ? 'Create Task' : 'Save Changes';
         }
     });
 
-    updateRemoveButtons();
-    loadTask();
+    initForm();
 </script>
-
-<style>
-    .form-container {
-        background: var(--bg-card);
-        padding: 2rem;
-        border-radius: 8px;
-        border: 1px solid var(--border);
-        max-width: 800px;
-        margin: 0 auto;
-        color: var(--text);
-    }
-
-    .section-title {
-        margin-top: 0;
-        margin-bottom: 1.5rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 1px solid var(--border);
-        color: var(--primary);
-        font-size: 1.25rem;
-    }
-
-    .separator {
-        height: 1px;
-        background: var(--border);
-        margin: 2rem 0;
-    }
-
-    .form-row {
-        display: flex;
-        margin-bottom: 1.5rem;
-        align-items: flex-start;
-    }
-
-    .form-row>label {
-        width: 200px;
-        /* Fixed width sidebar labels */
-        padding-top: 0.5rem;
-        font-weight: 600;
-        flex-shrink: 0;
-        color: var(--text-muted);
-    }
-
-    .input-wrapper {
-        flex-grow: 1;
-    }
-
-    .input-wrapper input[type="text"],
-    .input-wrapper input[type="number"],
-    .input-wrapper select,
-    .input-wrapper textarea {
-        width: 100%;
-        padding: 0.6rem;
-        border: 1px solid var(--input-border);
-        border-radius: 4px;
-        font-size: 1rem;
-        background: var(--input-bg);
-        color: var(--text);
-        transition: border-color 0.2s;
-    }
-
-    .input-wrapper input:focus,
-    .input-wrapper select:focus,
-    .input-wrapper textarea:focus {
-        border-color: var(--primary);
-        outline: none;
-        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
-    }
-
-    .code-font {
-        font-family: monospace;
-        background: var(--light);
-        /* Use light variable which adapts (light gray in light mode, dark gray in dark mode) */
-    }
-
-    .help-text {
-        font-size: 0.85rem;
-        color: var(--text-muted);
-        margin-top: 0.4rem;
-        margin-bottom: 0;
-    }
-
-    .command-item {
-        margin-bottom: 1rem;
-        display: flex;
-        gap: 0.5rem;
-        align-items: flex-start;
-    }
-
-    .command-item .command-input {
-        flex: 1;
-    }
-
-    .command-item .remove-command {
-        margin-top: 0;
-    }
-
-    .form-actions {
-        margin-top: 2rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--border);
-        display: flex;
-        justify-content: flex-end;
-    }
-
-    .switch-label {
-        display: flex;
-        align-items: center;
-        font-weight: normal;
-        cursor: pointer;
-        color: var(--text);
-    }
-
-    .interval-window {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-    }
-
-    /* Mobile responsive */
-    @media (max-width: 768px) {
-        .form-container {
-            padding: 1rem;
-            max-width: 100%;
-        }
-
-        .form-row {
-            flex-direction: column;
-        }
-
-        .form-row>label {
-            width: 100%;
-            margin-bottom: 0.5rem;
-            padding-top: 0;
-        }
-
-        .section-title {
-            font-size: 1.1rem;
-            margin-bottom: 1rem;
-        }
-
-        .separator {
-            margin: 1.25rem 0;
-        }
-
-        .form-actions {
-            justify-content: stretch;
-        }
-
-        .form-actions .btn {
-            width: 100%;
-            text-align: center;
-        }
-
-        .command-item {
-            flex-direction: column;
-        }
-
-        .command-item .remove-command {
-            align-self: flex-end;
-        }
-
-        .interval-window {
-            flex-wrap: wrap;
-        }
-    }
-
-    @media (max-width: 480px) {
-        .form-container {
-            padding: 0.75rem;
-        }
-
-        .input-wrapper input[type="text"],
-        .input-wrapper input[type="number"],
-        .input-wrapper select,
-        .input-wrapper textarea {
-            padding: 0.5rem;
-            font-size: 16px;
-        }
-
-        .help-text {
-            font-size: 0.75rem;
-        }
-    }
-</style>
 {% endblock %}

@@ -49,6 +49,106 @@ proc getTasksCount*(db: DbConn): int =
   if count == "": return 0
   return parseInt(count)
 
+proc getEnabledTasksCount*(db: DbConn): int =
+  let count = db.getValue(sql"SELECT COUNT(*) FROM TaskTable WHERE enabled = ?", serialize(true))
+  if count == "": return 0
+  return parseInt(count)
+
+proc getExecutionStatusCounts*(db: DbConn): Table[string, int] =
+  result = initTable[string, int]()
+  for row in db.getAllRows(sql"SELECT status, COUNT(*) FROM ExecutionTable GROUP BY status"):
+    if row.len >= 2:
+      try:
+        let st = $deserialize[ExecutionStatus](row[0])
+        result[st] = parseInt(row[1])
+      except:
+        discard
+
+proc getValueSeq(db: DbConn, q: SqlQuery, args: seq[string]): string =
+  case args.len
+  of 0: db.getValue(q)
+  of 1: db.getValue(q, args[0])
+  of 2: db.getValue(q, args[0], args[1])
+  of 3: db.getValue(q, args[0], args[1], args[2])
+  of 4: db.getValue(q, args[0], args[1], args[2], args[3])
+  of 5: db.getValue(q, args[0], args[1], args[2], args[3], args[4])
+  of 6: db.getValue(q, args[0], args[1], args[2], args[3], args[4], args[5])
+  of 7: db.getValue(q, args[0], args[1], args[2], args[3], args[4], args[5], args[6])
+  of 8: db.getValue(q, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7])
+  of 9: db.getValue(q, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8])
+  else: db.getValue(q, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9])
+
+proc getAllRowsSeq(db: DbConn, q: SqlQuery, args: seq[string]): seq[Row] =
+  case args.len
+  of 0: db.getAllRows(q)
+  of 1: db.getAllRows(q, args[0])
+  of 2: db.getAllRows(q, args[0], args[1])
+  of 3: db.getAllRows(q, args[0], args[1], args[2])
+  of 4: db.getAllRows(q, args[0], args[1], args[2], args[3])
+  of 5: db.getAllRows(q, args[0], args[1], args[2], args[3], args[4])
+  of 6: db.getAllRows(q, args[0], args[1], args[2], args[3], args[4], args[5])
+  of 7: db.getAllRows(q, args[0], args[1], args[2], args[3], args[4], args[5], args[6])
+  of 8: db.getAllRows(q, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7])
+  of 9: db.getAllRows(q, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8])
+  else: db.getAllRows(q, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9])
+
+proc queryExecutionsPage*(db: DbConn, search: string = "", status: string = "",
+    taskId: int = -1, jobId: int = -1, matchTaskName: string = "",
+    matchJobName: string = "", page: int = 1, limit: int = 50): tuple[
+    rows: seq[tuple[dbId: int, data: Execution]], total: int] =
+  var conds: seq[string] = @[]
+  var args: seq[string] = @[]
+
+  if search.len > 0:
+    conds.add("(LOWER(taskName) LIKE ? OR LOWER(jobName) LIKE ?)")
+    let pattern = "%" & search.toLowerAscii() & "%"
+    args.add(pattern)
+    args.add(pattern)
+
+  if status.len > 0:
+    try:
+      let st = parseEnum[ExecutionStatus](status)
+      conds.add("status = ?")
+      args.add(st.serialize())
+    except ValueError:
+      return (@[], 0)
+
+  if taskId > 0:
+    conds.add("taskId = ?")
+    args.add($taskId)
+
+  if jobId > 0:
+    if matchTaskName.len > 0 and matchJobName.len > 0:
+      conds.add("(jobId = ? OR (taskName = ? AND jobName = ?))")
+      args.add($jobId)
+      args.add(matchTaskName.serialize())
+      args.add(matchJobName.serialize())
+    else:
+      conds.add("jobId = ?")
+      args.add($jobId)
+
+  let whereSql = if conds.len > 0: " WHERE " & conds.join(" AND ") else: ""
+  let countStr = db.getValueSeq(sql("SELECT COUNT(*) FROM ExecutionTable" & whereSql), args)
+  result.total = if countStr.len > 0: parseInt(countStr) else: 0
+
+  let safePage = max(1, page)
+  let safeLimit = max(1, min(limit, 500))
+  let offset = (safePage - 1) * safeLimit
+  let runningSer = esRunning.serialize()
+  let selectSql = "SELECT * FROM ExecutionTable" & whereSql &
+      " ORDER BY CASE WHEN status = ? THEN 0 ELSE 1 END ASC, startTime DESC LIMIT ? OFFSET ?"
+  var selectArgs = args
+  selectArgs.add(runningSer)
+  selectArgs.add($safeLimit)
+  selectArgs.add($offset)
+
+  let rawRows = db.getAllRowsSeq(sql(selectSql), selectArgs)
+  for row in rawRows:
+    if row.len > 0:
+      let dbId = row[0].parseInt
+      let objData = row.dbRowToObj[:Execution]()
+      result.rows.add((dbId, objData))
+
 proc getJobHistory*(db: DbConn, jobId: int): seq[tuple[dbId: int,
     data: Execution]] =
   return queryRowsExecution(db, "jobId=" & $jobId & " ORDER BY startTime DESC LIMIT 50")
@@ -103,13 +203,18 @@ proc runDbWorker*(dbWorker: DbWorker) =
   let db = dbWorker.db
 
   while getIsRunning():
+    var currentAckCh: ptr Channel[int] = nil
     try:
       let msg = dbWorker.ch[].recv()
+      currentAckCh = msg.ackCh
+      var ackVal = 1
       debug "Received db message: " & $msg.kind
 
       case msg.kind:
       of dbStop:
         warn "Stopping db worker"
+        if currentAckCh != nil:
+          currentAckCh[].send(1)
         dbWorker.db.close()
         break
 
@@ -119,10 +224,13 @@ proc runDbWorker*(dbWorker: DbWorker) =
           warn "User " & msg.user.username & " already exists"
           if msg.userResultCh != nil:
             msg.userResultCh[].send(-1)
+          if currentAckCh != nil:
+            currentAckCh[].send(-1)
           continue
 
         info "Adding user=" & msg.user.username & " email=" & msg.user.email
         let userId = db.insertRowUser(msg.user)
+        ackVal = userId
         if msg.userResultCh != nil:
           msg.userResultCh[].send(userId)
 
@@ -139,14 +247,12 @@ proc runDbWorker*(dbWorker: DbWorker) =
 
       of dbDeleteUser:
         db.deleteRowUser(msg.deleteUserId)
+        db.exec(sql"DELETE FROM TokenTable WHERE userId = ?", msg.deleteUserId)
 
       # Task
       of dbInsertTask:
-        var taskCopy = msg.task
-
         let taskId = db.insertRowTask(msg.task)
-        if msg.taskResultCh != nil:
-          msg.taskResultCh[].send(taskId)
+        ackVal = taskId
         for idx, job in msg.task.jobs.pairs:
           discard db.insertRowJob(Job(
               taskId: taskId,
@@ -154,6 +260,8 @@ proc runDbWorker*(dbWorker: DbWorker) =
               command: job.command,
               orderIdx: idx
           ))
+        if msg.taskResultCh != nil:
+          msg.taskResultCh[].send(taskId)
 
       of dbUpdateTask:
         db.updateRowTask(msg.updateTaskId, msg.updatedTask)
@@ -165,24 +273,34 @@ proc runDbWorker*(dbWorker: DbWorker) =
               command: job.command,
               orderIdx: idx
           ))
+        ackVal = msg.updateTaskId
 
       of dbDeleteTask:
         db.deleteRowTask(msg.deleteTaskId)
         db.exec(sql"DELETE FROM JobTable WHERE taskId = ?", msg.deleteTaskId)
-        if fileExists(msg.deleteTaskSourceFile):
+        if msg.deleteTaskSourceFile.len > 0 and fileExists(msg.deleteTaskSourceFile):
           removeFile(msg.deleteTaskSourceFile)
 
       of dbToggleTask:
-        db.exec(sql"UPDATE TaskTable SET enabled = ? WHERE _dbID = ?",
-          if msg.toggleEnabled: 1 else: 0, msg.toggleTaskId)
+        if msg.toggleConfigHash.len > 0:
+          db.exec(sql"UPDATE TaskTable SET enabled = ?, configHash = ?, updatedAt = ? WHERE _dbID = ?",
+            serialize(msg.toggleEnabled), serialize(msg.toggleConfigHash), now().serialize(), msg.toggleTaskId)
+        else:
+          db.exec(sql"UPDATE TaskTable SET enabled = ?, updatedAt = ? WHERE _dbID = ?",
+            serialize(msg.toggleEnabled), now().serialize(), msg.toggleTaskId)
 
       # Execution
       of dbInsertExecution:
         let executionId = db.insertRowExecution(msg.execution)
+        ackVal = executionId
         if msg.executionResultCh != nil:
           msg.executionResultCh[].send(executionId)
 
       of dbDeleteExecution:
+        let execs = queryRowsExecution(db, "_dbID = " & $msg.deleteExecutionId)
+        if execs.len > 0 and execs[0].data.logFile.len > 0 and fileExists(execs[0].data.logFile):
+          try: removeFile(execs[0].data.logFile)
+          except OSError: discard
         db.deleteRowExecution(msg.deleteExecutionId)
 
       of dbUpdateExecution:
@@ -201,6 +319,7 @@ proc runDbWorker*(dbWorker: DbWorker) =
       # Token
       of dbInsertToken:
         let tokenId = db.insertRowToken(msg.token)
+        ackVal = tokenId
         if msg.tokenResultCh != nil:
           msg.tokenResultCh[].send(tokenId)
 
@@ -234,7 +353,12 @@ proc runDbWorker*(dbWorker: DbWorker) =
         debug "Total executions after dropping old ones by Job: " &
             $db.getAllRows(sql"SELECT COUNT(_dbID) FROM ExecutionTable")
 
+      if currentAckCh != nil:
+        currentAckCh[].send(ackVal)
+
     except Exception as e:
+      if currentAckCh != nil:
+        currentAckCh[].send(-1)
       error "Error in db worker: " & getCurrentExceptionMsg()
       dbWorker.monitorChan[].send(SchedulerMonitorSignal(
         kind: smmAlert,

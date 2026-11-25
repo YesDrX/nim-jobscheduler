@@ -1,185 +1,189 @@
 {% extends "base.html" %}
 
+{% block title %}Execution #{{ execId }} — Log Viewer{% endblock %}
 
-{% block title %}Log Viewer - Execution #{{ execId }}{% endblock %}
+{% block breadcrumbs %}
+<a href="/executions">Executions</a>
+<span class="sep">/</span>
+<a href="#" id="bc-task">Task</a>
+<span class="sep">/</span>
+<span class="current">Execution #{{ execId }}</span>
+{% endblock %}
+
+{% block topbar_actions %}
+<button type="button" id="cancel-btn" class="btn btn-sm btn-danger-soft" style="display:none" onclick="cancelThisExec()">Cancel Run</button>
+<a href="/api/download_log?id={{ execId }}" class="btn btn-sm btn-secondary">Download</a>
+{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h2>Log Viewer - Execution #{{ execId }}</h2>
-    <div class="btn-group">
-        <a href="javascript:history.back()" class="btn btn-secondary">← Back</a>
-        <button onclick="viewTask()" class="btn">Task</button>
-        <button onclick="downloadLog()" class="btn">Download</button>
-        <button onclick="toggleAutoScroll()" class="btn" id="autoscroll-btn">Auto-scroll: ON</button>
+    <div class="page-title-group">
+        <h1 class="page-title">
+            <span>Execution #{{ execId }}</span>
+            <span id="hdr-status"></span>
+        </h1>
+        <p class="page-subtitle" id="hdr-subtitle"></p>
+    </div>
+    <div class="header-actions">
+        <a href="#" id="btn-view-task" class="btn btn-sm btn-secondary">View Task</a>
+        <a href="#" id="btn-job-history" class="btn btn-sm btn-secondary" style="display:none">Job History</a>
     </div>
 </div>
 
-<div class="section">
-    <div id="log-info" class="log-info">
-        <span>Status: <span id="exec-status" class="status-badge">-</span></span>
-        <span>Started: <span id="exec-start">-</span></span>
-        <span>PID: <span id="exec-pid">-</span></span>
-        <span>File: <span id="exec-file">-</span></span>
+<div class="card">
+    <div id="log-meta-strip" class="log-meta-strip"></div>
+    <div class="toolbar">
+        <div class="search-box" style="max-width:300px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="log-search" placeholder="Find in log…">
+        </div>
+        <button type="button" id="wrap-btn" class="btn btn-xs btn-primary" onclick="toggleWrap()">Wrap Lines</button>
+        <button type="button" id="follow-btn" class="btn btn-xs btn-secondary" onclick="toggleFollow()">Follow: ON</button>
+        <button type="button" class="btn btn-xs btn-secondary" onclick="copyLog()">Copy</button>
+        <span id="log-size-info" class="muted mono" style="font-size:12px;margin-left:auto;"></span>
     </div>
-
-    <div class="log-viewer">
-        <pre><code id="log-content" class="language-bash">Loading log...</code></pre>
+    <div class="card-body" style="padding:14px;">
+        <div id="log-terminal" class="log-terminal wrap" style="min-height:420px;max-height:70vh;">Loading log…</div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    const execId = {{ execId }};
-    const execution = {{ executionJson }};
-    const maxLogLength = {{ maxLen }};
+    const initPayload = {{ initialJson }};
+    const execId = initPayload.execId;
+    const maxLen = initPayload.maxLen || 131072;
+    let exec = initPayload.execution || {};
 
-    let autoScroll = true;
-    let pollInterval = null;
+    let offset = -1;
+    let rawText = '';
+    let searchTerm = '';
+    let wrapLines = true;
+    let followTail = true;
+    let pollTimer = null;
 
-    function toggleAutoScroll() {
-        autoScroll = !autoScroll;
-        document.getElementById('autoscroll-btn').textContent = `Auto-scroll: ${autoScroll ? 'ON' : 'OFF'}`;
+    function isLiveStatus(st) {
+        return st === 'Running' || st === 'Scheduled' || st === 'Triggered' || !st;
     }
 
-    function viewTask() {
-        window.location.href = `/task_detail?id=${execution.taskId}`;
+    function renderMeta(e) {
+        const taskUrl = `/task_detail?id=${e.taskId}`;
+        document.getElementById('bc-task').href = taskUrl;
+        document.getElementById('bc-task').textContent = e.taskName || 'Task';
+        document.getElementById('btn-view-task').href = taskUrl;
+
+        const jhBtn = document.getElementById('btn-job-history');
+        if (e.jobId > 0) {
+            jhBtn.href = `/job_history?id=${e.jobId}`;
+            jhBtn.style.display = 'inline-flex';
+        }
+
+        document.getElementById('hdr-status').innerHTML = formatStatus(e.status);
+        document.getElementById('hdr-subtitle').innerHTML =
+            `<strong>${escapeHtml(e.taskName || 'Task')}</strong> · ${escapeHtml(e.jobName || 'Job')}`;
+
+        const running = isLiveStatus(e.status);
+        document.getElementById('cancel-btn').style.display = running ? 'inline-flex' : 'none';
+
+        document.getElementById('log-meta-strip').innerHTML = `
+            <span class="log-meta-item"><strong>Started</strong> <span class="tabular">${formatTime(e.startTime)}</span></span>
+            <span class="log-meta-item"><strong>Ended</strong> <span class="tabular">${running ? 'In progress…' : formatTime(e.endTime)}</span></span>
+            <span class="log-meta-item"><strong>Duration</strong> ${formatDurationCell(e.startTime, e.endTime, e.status)}</span>
+            <span class="log-meta-item"><strong>PID</strong> <span class="mono">${e.pid || '—'}</span></span>
+            ${!running && e.exitCode !== undefined ? `<span class="log-meta-item"><strong>Exit Code</strong> <span class="mono">${e.exitCode}</span></span>` : ''}
+            <span class="log-meta-item"><strong>File</strong> <span class="mono" style="font-size:12px;">${escapeHtml(e.logFile || '—')}</span></span>
+        `;
     }
 
-    function downloadLog() {
-        window.location.href = `/api/download_log?id=${execId}`;
-    }
-
-    function scrollToBottom() {
-        if (autoScroll) {
-            // Scroll the .log-viewer container, not the <code> element
-            const viewer = document.querySelector('.log-viewer');
-            if (viewer) viewer.scrollTop = viewer.scrollHeight;
+    function renderLog() {
+        const el = document.getElementById('log-terminal');
+        const text = rawText || '(No output yet)';
+        const q = searchTerm.trim();
+        if (!q) {
+            el.textContent = text;
+        } else {
+            const escaped = escapeHtml(text);
+            const safeQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            el.innerHTML = escaped.replace(new RegExp(safeQ, 'gi'), m => `<mark>${m}</mark>`);
+        }
+        el.classList.toggle('wrap', wrapLines);
+        if (followTail) {
+            el.scrollTop = el.scrollHeight;
         }
     }
 
-    function updateExecutionInfo(exec) {
-        document.getElementById('exec-status').textContent = exec.status;
-        document.getElementById('exec-status').className = `status-badge status-${exec.status.toLowerCase()}`;
-        document.getElementById('exec-start').textContent = new Date(exec.startTime).toLocaleString();
-        document.getElementById('exec-pid').textContent = exec.pid || '-';
-        document.getElementById('exec-file').textContent = exec.logFile || 'Unknown';
-    }
-
-    async function loadExecutionInfo() {
-        updateExecutionInfo(execution);
-    }
-
-    async function loadLogContent(stopPollingWhenDone) {
+    async function fetchChunk() {
         try {
-            const response = await fetch(`/api/execution_log?id=${execId}&maxLen=${maxLogLength}`, { method: 'POST' });
-            if (!response.ok) throw new Error("Failed to load log");
-            const content = await response.json();
-            const el = document.getElementById('log-content');
-            el.textContent = '\n' + (content.content || 'No log content available');
-            Prism.highlightElement(el);
-            scrollToBottom();
+            const data = await apiJson(`/api/execution_log?id=${execId}&offset=${offset}&maxLen=${maxLen}`);
+            if (!data) return;
 
-            // Stop polling once the execution has finished
-            if (stopPollingWhenDone && content.status) {
-                const s = content.status.toLowerCase();
-                if (s !== 'running' && s !== 'pending' && s !== 'scheduled' && s !== 'triggered') {
-                    stopPolling();
+            exec = { ...exec, ...data };
+            renderMeta(exec);
+
+            if (offset < 0 || data.reset) {
+                rawText = (data.skippedBytes ? '… (earlier output truncated; download full log to view all) …\n' : '') + (data.content || '');
+            } else if (data.content) {
+                rawText += data.content;
+            }
+            if (data.logFound) {
+                offset = data.offset;
+                const kb = (data.fileSize / 1024).toFixed(1);
+                document.getElementById('log-size-info').textContent = `${kb} KB`;
+            }
+            renderLog();
+
+            if (isLiveStatus(data.status)) {
+                pollTimer = setTimeout(fetchChunk, 1500);
+            }
+        } catch (err) {
+            document.getElementById('log-terminal').textContent = `Error loading log: ${err.message}`;
+        }
+    }
+
+    function toggleWrap() {
+        wrapLines = !wrapLines;
+        document.getElementById('wrap-btn').classList.toggle('btn-primary', wrapLines);
+        document.getElementById('wrap-btn').classList.toggle('btn-secondary', !wrapLines);
+        renderLog();
+    }
+
+    function toggleFollow() {
+        followTail = !followTail;
+        document.getElementById('follow-btn').textContent = `Follow: ${followTail ? 'ON' : 'OFF'}`;
+        renderLog();
+    }
+
+    function copyLog() {
+        navigator.clipboard.writeText(rawText || '')
+            .then(() => showToast({ title: 'Log copied to clipboard', type: 'success', duration: 2500 }))
+            .catch(() => showToast({ title: 'Copy failed', type: 'error' }));
+    }
+
+    function cancelThisExec() {
+        showConfirmModal({
+            title: 'Cancel Execution',
+            message: `Stop running execution #${execId}?`,
+            confirmText: 'Cancel Run',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await apiJson(`/api/cancel_execution?id=${execId}`, { method: 'POST' });
+                    showToast({ title: `Cancelled execution #${execId}`, type: 'warning' });
+                    if (pollTimer) clearTimeout(pollTimer);
+                    fetchChunk();
+                } catch (err) {
+                    showToast({ title: 'Cancel failed', message: err.message, type: 'error' });
                 }
             }
-        } catch (error) {
-            document.getElementById('log-content').textContent = 'Error loading log: ' + error;
-            stopPolling();
-        }
+        });
     }
 
-    function stopPolling() {
-        if (pollInterval !== null) {
-            clearInterval(pollInterval);
-            pollInterval = null;
-        }
-    }
+    document.getElementById('log-search').addEventListener('input', (e) => {
+        searchTerm = e.target.value;
+        renderLog();
+    });
 
-    // Poll the log endpoint every 2s for live jobs
-    function startLogPolling() {
-        // Load immediately, then repeat
-        loadLogContent(true);
-        pollInterval = setInterval(() => loadLogContent(true), 2000);
-    }
-
-    // Main init logic
-    async function init() {
-        await loadExecutionInfo();
-
-        const status = execution.status ? execution.status.toLowerCase() : '';
-
-        if (status === 'running' || status === 'pending' || status === 'scheduled' || status === 'triggered' || status === '') {
-            startLogPolling();
-        } else {
-            loadLogContent(false);
-        }
-    }
-
-    init();
+    renderMeta(exec);
+    fetchChunk();
 </script>
-
-<style>
-    .log-viewer {
-        background: #1e1e1e;
-        border-radius: 4px;
-        margin-top: 1rem;
-        max-height: 600px;
-        overflow-y: auto;
-    }
-
-    .log-viewer pre {
-        color: #d4d4d4;
-        font-family: 'Consolas', 'Monaco', monospace;
-        font-size: 0.875rem;
-        line-height: 1.5;
-        padding: 1rem;
-        margin: 0;
-    }
-
-    .log-info {
-        display: flex;
-        gap: 2rem;
-        padding: 1rem;
-        background: var(--light);
-        border-radius: 4px;
-    }
-
-    .log-info span {
-        font-size: 0.875rem;
-    }
-
-    .btn-group {
-        display: flex;
-        gap: 0.5rem;
-    }
-
-    .btn-secondary {
-        background: #6b7280;
-    }
-
-    .btn-secondary:hover {
-        background: #4b5563;
-    }
-
-    @media (max-width: 768px) {
-        .log-info {
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .log-viewer {
-            max-height: 400px;
-        }
-
-        .log-viewer pre {
-            font-size: 0.75rem;
-            padding: 0.5rem;
-        }
-    }
-</style>
 {% endblock %}

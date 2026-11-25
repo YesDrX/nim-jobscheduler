@@ -431,13 +431,13 @@ proc executeJob*(
     nextJob: Job,
     jobsTuple: seq[tuple[dbId: int, data: Job]],
     manualTriggered: bool = false
-) =
+): int {.discardable.} =
     info "Executing job " & $jobId & " " & job.name & " for task " & $taskId &
             " " & task.name
     let (exec, p) = if task.taskType == ttLocal:
-        executor.runLocalCommand(taskId, task, jobId, job, nextJobId)
+        executor.runLocalCommand(taskId, task, jobId, job, nextJobId, manualTriggered)
     else:
-        executor.runRemoteCommand(taskId, task, jobId, job, nextJobId)
+        executor.runRemoteCommand(taskId, task, jobId, job, nextJobId, manualTriggered)
 
     var resultCh = create(Channel[int])
     resultCh[].open()
@@ -452,6 +452,7 @@ proc executeJob*(
     dealloc(resultCh)
     executor.liveExecutions[execId] = (execution: dbExec, p: p, task: task,
             jobsTuple: jobsTuple)
+    return execId
 
 proc executeTask*(
     executor: Executor,
@@ -459,20 +460,25 @@ proc executeTask*(
     task: Task,
     jobs: seq[tuple[dbId: int, data: Job]],
     manualTriggered: bool = false
-) =
+): int {.discardable.} =
     info "Executing task " & $taskId & " " & task.name
     if jobs.len == 0:
-        return
+        return -1
 
     if task.parallel:
+        var firstExecId = -1
         for j in jobs:
-            executor.executeJob(taskId, task, j.dbId, j.data, -1, Job(), jobs)
+            let eid = executor.executeJob(taskId, task, j.dbId, j.data, -1,
+                Job(), jobs, manualTriggered)
+            if firstExecId == -1:
+                firstExecId = eid
+        return firstExecId
     else:
         let firstJob = jobs[0]
         let nextJobId = if jobs.len > 1: jobs[1].dbId else: -1
         let nextJob = if jobs.len > 1: jobs[1].data else: Job()
-        executor.executeJob(taskId, task, firstJob.dbId, firstJob.data,
-                nextJobId, nextJob, jobs)
+        return executor.executeJob(taskId, task, firstJob.dbId, firstJob.data,
+                nextJobId, nextJob, jobs, manualTriggered)
 
 proc cancelExecution*(executor: Executor, executionId: int) =
     info "Cancelling execution " & $executionId
@@ -589,32 +595,47 @@ proc runExecutor*(executor: Executor) =
         ))
 
     while getIsRunning():
+        var pendingResultCh: ptr Channel[int] = nil
         try:
             while executor.executorChan[].peek() > 0:
                 let msg = executor.executorChan[].recv()
+                pendingResultCh = msg.resultCh
                 debug "Received executor message: " & $msg.kind
                 case msg.kind:
                     of ExecutorSignalType.estTriggerTask:
                         let jobs = db.queryRowsJob("taskId = " &
                                 $msg.triggerTaskId & " ORDER BY orderIdx ASC")
-                        executor.executeTask(msg.triggerTaskId, msg.triggerTaskTask,
-                                jobs, msg.triggerTaskManualTriggered)
-                        
+                        let eid = executor.executeTask(msg.triggerTaskId,
+                                msg.triggerTaskTask, jobs,
+                                msg.triggerTaskManualTriggered)
+                        if pendingResultCh != nil:
+                            pendingResultCh[].send(eid)
+                            pendingResultCh = nil
+
                     of ExecutorSignalType.estTriggerJob:
                         let jobs = db.queryRowsJob("taskId = " &
                                 $msg.triggerJobTaskId & " ORDER BY orderIdx ASC")
-                        executor.executeJob(msg.triggerJobTaskId,
+                        let eid = executor.executeJob(msg.triggerJobTaskId,
                                 msg.triggerJobTask, msg.triggerJobJobId,
                                 msg.triggerJobJob, nextJobId = -1,
                                 nextJob = Job(),
                                 jobsTuple = jobs,
                                 manualTriggered = msg.triggerJobManualTriggered)
-                        
+                        if pendingResultCh != nil:
+                            pendingResultCh[].send(eid)
+                            pendingResultCh = nil
+
                     of ExecutorSignalType.estCancelExecution:
                         executor.cancelExecution(msg.cancelExecutionId)
+                        if pendingResultCh != nil:
+                            pendingResultCh[].send(1)
+                            pendingResultCh = nil
 
             executor.checkLiveExecutions()
         except Exception as e:
+            if pendingResultCh != nil:
+                pendingResultCh[].send(-1)
+                pendingResultCh = nil
             error "Error in executor loop: " & getCurrentExceptionMsg()
             executor.monitorChan[].send(SchedulerMonitorSignal(
                 kind: smmAlert,
@@ -622,6 +643,9 @@ proc runExecutor*(executor: Executor) =
                 message: e.getStackTrace()
             ))
 
-        sleep(1000)
+        for _ in 0..<10:
+            if not getIsRunning() or executor.executorChan[].peek() > 0:
+                break
+            sleep(100)
     info "Stopping executor"
 

@@ -161,6 +161,7 @@ type
     dbCleanupExecutions
 
   DbMessage* = object
+    ackCh*: ptr Channel[int]
     case kind*: DbMsgKind
     of dbStop: discard
 
@@ -188,6 +189,7 @@ type
     of dbToggleTask:
       toggleTaskId*: int
       toggleEnabled*: bool
+      toggleConfigHash*: string
 
     of dbInsertExecution:
       execution*: Execution
@@ -251,6 +253,7 @@ type
     estCancelExecution
 
   ExecutorSignal* = object
+    resultCh*: ptr Channel[int]
     case kind*: ExecutorSignalType
     of estTriggerTask:
       triggerTaskId*: int

@@ -1,36 +1,82 @@
 {% extends "base.html" %}
 
+{% block title %}Dashboard — Job Scheduler{% endblock %}
 
+{% block breadcrumbs %}
+<span class="current">Dashboard</span>
+{% endblock %}
 
-{% block title %}Dashboard - Job Scheduler{% endblock %}
+{% block topbar_actions %}
+<a href="/new_task" class="btn btn-sm btn-primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    <span>New Task</span>
+</a>
+{% endblock %}
 
 {% block content %}
-<div class="dashboard-header">
-    <h2>Dashboard</h2>
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-value" id="total-executions">-</div>
-            <div class="stat-label">Total Executions</div>
-        </div>
-        <div class="stat-card success">
-            <div class="stat-value" id="successful">-</div>
-            <div class="stat-label">Successful</div>
-        </div>
-        <div class="stat-card running">
-            <div class="stat-value" id="running">-</div>
-            <div class="stat-label">Running</div>
-        </div>
-        <div class="stat-card failed">
-            <div class="stat-value" id="failed">-</div>
-            <div class="stat-label">Failed</div>
-        </div>
+<div class="page-header">
+    <div class="page-title-group">
+        <h1 class="page-title">Overview</h1>
+        <p class="page-subtitle">Live execution telemetry and recent job runs across your workspace.</p>
     </div>
 </div>
 
-<div class="section" id="running-section" style="display:none">
-    <h3>Currently Running</h3>
-    <div class="table-container">
-        <table id="running-table">
+<div class="stats-grid">
+    <div class="stat-card clickable" id="card-stat-all" onclick="filterByStatus('')">
+        <div class="stat-top">
+            <span class="stat-label">Total Executions</span>
+            <span class="stat-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            </span>
+        </div>
+        <div class="stat-value" id="stat-total">—</div>
+        <div class="stat-foot"><span id="stat-tasks">0</span> tasks (<span id="stat-enabled-tasks">0</span> active)</div>
+    </div>
+
+    <div class="stat-card clickable" id="card-stat-Running" onclick="filterByStatus('Running')">
+        <div class="stat-top">
+            <span class="stat-label">Running Now</span>
+            <span class="stat-icon info">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </span>
+        </div>
+        <div class="stat-value" id="stat-running">—</div>
+        <div class="stat-foot">Click to filter active runs</div>
+    </div>
+
+    <div class="stat-card clickable" id="card-stat-Success" onclick="filterByStatus('Success')">
+        <div class="stat-top">
+            <span class="stat-label">Succeeded</span>
+            <span class="stat-icon success">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </span>
+        </div>
+        <div class="stat-value" id="stat-success">—</div>
+        <div class="stat-foot" id="stat-success-rate">—</div>
+    </div>
+
+    <div class="stat-card clickable" id="card-stat-Failed" onclick="filterByStatus('Failed')">
+        <div class="stat-top">
+            <span class="stat-label">Failed</span>
+            <span class="stat-icon danger">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            </span>
+        </div>
+        <div class="stat-value" id="stat-failed">—</div>
+        <div class="stat-foot"><span id="stat-cancelled">0</span> cancelled · <span id="stat-lost">0</span> lost</div>
+    </div>
+</div>
+
+<!-- Currently Running Panel -->
+<div class="card" id="running-card" style="display:none">
+    <div class="card-header">
+        <div class="card-title">
+            <span class="status-badge running"><span class="dot"></span>Running Now</span>
+            <span class="muted tabular" id="running-count-label" style="font-size:13px;font-weight:500;"></span>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table>
             <thead>
                 <tr>
                     <th>ID</th>
@@ -38,7 +84,8 @@
                     <th>Job</th>
                     <th>Started</th>
                     <th>Duration</th>
-                    <th>Actions</th>
+                    <th>PID</th>
+                    <th class="align-right">Actions</th>
                 </tr>
             </thead>
             <tbody id="running-body"></tbody>
@@ -46,131 +93,218 @@
     </div>
 </div>
 
-<div class="section">
-    <h3>Recent Executions</h3>
-    <div class="search-container"
-        style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
-        <input type="text" id="name-search" placeholder="Search by task or job name..."
-            style="flex: 1; min-width: 200px; max-width: 400px; padding: 0.5rem; border: 1px solid var(--input-border); border-radius: 4px; font-size: 1rem;">
-        <select id="status-filter"
-            style="padding: 0.5rem; border: 1px solid var(--input-border); border-radius: 4px; font-size: 1rem; background: var(--input-bg); color: var(--text);">
+<!-- Recent Executions -->
+<div class="card">
+    <div class="card-header">
+        <div class="card-title">Recent Executions</div>
+        <a href="/executions" class="btn btn-xs btn-ghost">View all history &rarr;</a>
+    </div>
+    <div class="toolbar">
+        <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="name-search" placeholder="Search by task or job name…">
+        </div>
+        <select id="status-filter" aria-label="Filter by status">
             <option value="">All Statuses</option>
+            <option value="Running">Running</option>
             <option value="Success">Success</option>
             <option value="Failed">Failed</option>
-            <option value="Running">Running</option>
+            <option value="Cancelled">Cancelled</option>
+            <option value="Lost">Lost</option>
             <option value="Scheduled">Scheduled</option>
         </select>
-        <button id="delete-selected-btn" class="btn btn-danger btn-sm" style="display:none" onclick="deleteSelected()">
+        <button type="button" id="delete-selected-btn" class="btn btn-sm btn-danger-soft" style="display:none;margin-left:auto;" onclick="deleteSelected()">
             Delete Selected (<span id="selected-count">0</span>)
         </button>
     </div>
-    <div class="table-container">
-        <table id="executions-table">
+    <div class="table-wrap">
+        <table>
             <thead>
                 <tr>
-                    <th style="width:1%"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" title="Select all on this page"></th>
+                    <th style="width:36px"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" aria-label="Select all on page"></th>
                     <th>ID</th>
                     <th>Task</th>
                     <th>Job</th>
                     <th>Status</th>
-                    <th>Start Time</th>
-                    <th>End Time</th>
-                    <th>Actions</th>
+                    <th>Started</th>
+                    <th>Duration</th>
+                    <th class="align-right">Actions</th>
                 </tr>
             </thead>
-            <tbody id="executions-body">
-                <tr>
-                    <td colspan="8" class="loading">Loading...</td>
-                </tr>
-            </tbody>
+            <tbody id="executions-body"></tbody>
         </table>
     </div>
-    <div id="pagination" class="pagination"
-        style="margin-top: 1rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem;"></div>
+    <div id="pagination" class="pagination-bar" style="display:none"></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    let executionIds = {{ executionIdsJson }};
-    let allExecutions = {{ executionsJson }}.map((execution, idx) => {
-        return {
-            executionId: executionIds[idx],
-            ...execution
-        };
-    });
-
-    let filteredExecutions = allExecutions.slice();
     const PAGE_LIMIT = 50;
+    let state = {{ initialJson }};
+    let filteredExecutions = [];
     let currentPage = 1;
     let selectedIds = new Set();
-    let runningExecutions = allExecutions.filter(execution => execution.status == 'Running');
+    let activeStatus = '';
+    let searchTerm = '';
 
-    async function cancelJob(execId) {
-        showConfirmModal('Cancel Job', 'Are you sure you want to cancel this job?', async () => {
-            try {
-                await fetch(`/api/cancel_execution?id=${execId}`, { method: 'POST' });
-                window.location.reload();
-            } catch (e) { console.error(e); alert('Failed to cancel job'); }
+    function renderStats() {
+        const s = state.stats || {};
+        document.getElementById('stat-total').textContent = s.total ?? 0;
+        document.getElementById('stat-running').textContent = s.running ?? 0;
+        document.getElementById('stat-success').textContent = s.success ?? 0;
+        document.getElementById('stat-failed').textContent = s.failed ?? 0;
+        document.getElementById('stat-tasks').textContent = s.tasks ?? 0;
+        document.getElementById('stat-enabled-tasks').textContent = s.enabledTasks ?? 0;
+        document.getElementById('stat-cancelled').textContent = s.cancelled ?? 0;
+        document.getElementById('stat-lost').textContent = s.lost ?? 0;
+
+        const finished = (s.success || 0) + (s.failed || 0);
+        const rate = finished > 0 ? Math.round(((s.success || 0) / finished) * 100) : 100;
+        document.getElementById('stat-success-rate').textContent = finished > 0 ? `${rate}% pass rate` : 'No finished runs yet';
+
+        updateSidebarRunningBadge(s.running || 0);
+
+        ['all', 'Running', 'Success', 'Failed'].forEach(key => {
+            const card = document.getElementById(`card-stat-${key}`);
+            if (!card) return;
+            const isMatch = (key === 'all' && activeStatus === '') || (key === activeStatus);
+            card.classList.toggle('active-filter', isMatch && activeStatus !== '');
         });
     }
 
-    async function deleteExecution(execId) {
-        showConfirmModal('Delete Execution', 'Are you sure you want to delete this execution and its logs?', async () => {
-            try {
-                const response = await fetch(`/api/delete_execution?id=${execId}`, { method: 'POST' });
-                if (response.ok) {
-                    window.location.reload();
-                } else {
-                    alert('Failed to delete execution');
-                }
-            } catch (error) {
-                console.error('Error deleting execution:', error);
-                alert('Error deleting execution');
-            }
-        });
+    function renderRunning() {
+        const running = state.running || [];
+        const card = document.getElementById('running-card');
+        const tbody = document.getElementById('running-body');
+        if (running.length === 0) {
+            card.style.display = 'none';
+            return;
+        }
+        card.style.display = 'block';
+        document.getElementById('running-count-label').textContent = `${running.length} active`;
+        tbody.innerHTML = running.map(exec => `
+            <tr>
+                <td class="tabular mono muted">#${exec.id}</td>
+                <td><a href="/task_detail?id=${exec.taskId}"><strong>${escapeHtml(exec.taskName)}</strong></a></td>
+                <td>${escapeHtml(exec.jobName)}</td>
+                <td class="tabular" title="${escapeHtml(formatTime(exec.startTime))}">${formatShortTime(exec.startTime)}</td>
+                <td>${formatDurationCell(exec.startTime, exec.endTime, 'Running')}</td>
+                <td class="mono muted">${exec.pid || '—'}</td>
+                <td>
+                    <div class="cell-actions">
+                        <button type="button" class="btn btn-xs btn-secondary" onclick="openLogDrawer(${exec.id}, { onStatusChange: () => poller.refresh() })">Live Log</button>
+                        <button type="button" class="btn btn-xs btn-danger-soft" onclick="cancelExecution(${exec.id})">Cancel</button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
     }
 
-    async function deleteSelected() {
-        const ids = Array.from(selectedIds);
-        if (ids.length === 0) return;
-        showConfirmModal('Delete Executions', `Are you sure you want to delete ${ids.length} selected execution(s) and their logs?`, async () => {
-            try {
-                const response = await fetch('/api/delete_executions', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ids: ids})
-                });
-                if (response.ok) {
-                    window.location.reload();
-                } else {
-                    alert('Failed to delete executions');
-                }
-            } catch (error) {
-                console.error('Error deleting executions:', error);
-                alert('Error deleting executions');
-            }
+    function applyFilter(resetPage = true) {
+        const all = state.executions || [];
+        const q = searchTerm.trim().toLowerCase();
+        filteredExecutions = all.filter(exec => {
+            const hay = `${exec.taskName || ''} ${exec.jobName || ''} #${exec.id}`.toLowerCase();
+            const matchQ = !q || hay.includes(q);
+            const matchS = !activeStatus || exec.status === activeStatus;
+            return matchQ && matchS;
         });
+        const totalPages = Math.max(1, Math.ceil(filteredExecutions.length / PAGE_LIMIT));
+        if (resetPage) currentPage = 1;
+        else if (currentPage > totalPages) currentPage = totalPages;
+
+        // Clean stale selections
+        const validIds = new Set(all.map(e => e.id));
+        selectedIds.forEach(id => { if (!validIds.has(id)) selectedIds.delete(id); });
+
+        renderTable();
+        renderPagination();
     }
 
-    function toggleSelectAll(checkbox) {
+    function filterByStatus(status) {
+        activeStatus = (activeStatus === status && status !== '') ? '' : status;
+        document.getElementById('status-filter').value = activeStatus;
+        renderStats();
+        applyFilter(true);
+    }
+
+    function renderTable() {
+        const tbody = document.getElementById('executions-body');
+        if (filteredExecutions.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="empty-state-title">No executions match</div><div class="empty-state-sub">Try clearing your search or status filter.</div></div></td></tr>`;
+            updateSelectionUI();
+            return;
+        }
         const start = (currentPage - 1) * PAGE_LIMIT;
         const pageItems = filteredExecutions.slice(start, start + PAGE_LIMIT);
-        if (checkbox.checked) {
-            pageItems.forEach(exec => selectedIds.add(exec.executionId));
-        } else {
-            pageItems.forEach(exec => selectedIds.delete(exec.executionId));
-        }
+        tbody.innerHTML = pageItems.map(exec => `
+            <tr>
+                <td><input type="checkbox" ${selectedIds.has(exec.id) ? 'checked' : ''} onchange="toggleSelect(${exec.id}, this.checked)"></td>
+                <td class="tabular mono muted">#${exec.id}</td>
+                <td><a href="/task_detail?id=${exec.taskId}"><strong>${escapeHtml(exec.taskName)}</strong></a></td>
+                <td>
+                    ${exec.jobId > 0 ? `<a href="/job_history?id=${exec.jobId}">${escapeHtml(exec.jobName)}</a>` : escapeHtml(exec.jobName)}
+                </td>
+                <td>${formatStatus(exec.status, exec.id)}</td>
+                <td class="tabular" title="${escapeHtml(formatTime(exec.startTime))}">
+                    ${formatShortTime(exec.startTime)}
+                    <div class="muted" style="font-size:11.5px;">${formatRelativeTime(exec.startTime)}</div>
+                </td>
+                <td>${formatDurationCell(exec.startTime, exec.endTime, exec.status)}</td>
+                <td>
+                    <div class="cell-actions">
+                        <button type="button" class="btn btn-xs btn-secondary" onclick="openLogDrawer(${exec.id}, { onStatusChange: () => poller.refresh() })">Log</button>
+                        ${exec.status === 'Running'
+                            ? `<button type="button" class="btn btn-xs btn-danger-soft" onclick="cancelExecution(${exec.id})">Cancel</button>`
+                            : (exec.jobId > 0 ? `<button type="button" class="btn btn-xs btn-ghost" onclick="rerunJob(${exec.jobId}, '${escapeHtml(exec.jobName).replace(/'/g, "\\'")}')">Re-run</button>` : '')
+                        }
+                        <button type="button" class="btn btn-xs btn-ghost" title="Delete execution" onclick="deleteExecution(${exec.id})">Delete</button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
         updateSelectionUI();
+    }
+
+    function renderPagination() {
+        const el = document.getElementById('pagination');
+        const total = filteredExecutions.length;
+        const totalPages = Math.ceil(total / PAGE_LIMIT);
+        if (totalPages <= 1) {
+            el.style.display = 'none';
+            return;
+        }
+        el.style.display = 'flex';
+        const from = (currentPage - 1) * PAGE_LIMIT + 1;
+        const to = Math.min(currentPage * PAGE_LIMIT, total);
+        let btns = '';
+        if (currentPage > 1) btns += `<button type="button" class="btn btn-xs btn-secondary" onclick="goToPage(${currentPage - 1})">Previous</button>`;
+        const startP = Math.max(1, currentPage - 2);
+        const endP = Math.min(totalPages, currentPage + 2);
+        for (let p = startP; p <= endP; p++) {
+            btns += `<button type="button" class="btn btn-xs ${p === currentPage ? 'btn-primary' : 'btn-secondary'}" ${p === currentPage ? 'disabled' : `onclick="goToPage(${p})"`}>${p}</button>`;
+        }
+        if (currentPage < totalPages) btns += `<button type="button" class="btn btn-xs btn-secondary" onclick="goToPage(${currentPage + 1})">Next</button>`;
+        el.innerHTML = `<span class="tabular">Showing ${from}–${to} of ${total}</span><div class="pagination-btns">${btns}</div>`;
+    }
+
+    function goToPage(p) {
+        currentPage = p;
+        renderTable();
+        renderPagination();
+    }
+
+    function toggleSelectAll(cb) {
+        const start = (currentPage - 1) * PAGE_LIMIT;
+        const pageItems = filteredExecutions.slice(start, start + PAGE_LIMIT);
+        pageItems.forEach(e => cb.checked ? selectedIds.add(e.id) : selectedIds.delete(e.id));
         renderTable();
     }
 
-    function toggleSelect(execId, checked) {
-        if (checked) {
-            selectedIds.add(execId);
-        } else {
-            selectedIds.delete(execId);
-        }
+    function toggleSelect(id, checked) {
+        if (checked) selectedIds.add(id);
+        else selectedIds.delete(id);
         updateSelectionUI();
     }
 
@@ -181,163 +315,110 @@
         const start = (currentPage - 1) * PAGE_LIMIT;
         const pageItems = filteredExecutions.slice(start, start + PAGE_LIMIT);
 
-        if (selectedIds.size > 0) {
-            btn.style.display = '';
-            countEl.textContent = selectedIds.size;
-        } else {
-            btn.style.display = 'none';
-        }
+        btn.style.display = selectedIds.size > 0 ? 'inline-flex' : 'none';
+        countEl.textContent = selectedIds.size;
 
-        // Update select-all checkbox state
-        const allOnPageSelected = pageItems.length > 0 && pageItems.every(exec => selectedIds.has(exec.executionId));
-        selectAll.checked = allOnPageSelected;
-        selectAll.indeterminate = !allOnPageSelected && pageItems.some(exec => selectedIds.has(exec.executionId));
+        const allSel = pageItems.length > 0 && pageItems.every(e => selectedIds.has(e.id));
+        const someSel = pageItems.some(e => selectedIds.has(e.id));
+        selectAll.checked = allSel;
+        selectAll.indeterminate = !allSel && someSel;
     }
 
-    function applyFilter() {
-        const searchTerm = document.getElementById('name-search').value.toLowerCase();
-        const statusFilter = document.getElementById('status-filter').value;
+    function rerunJob(jobId, jobName) {
+        triggerJobInPlace(jobId, jobName, { onTriggered: () => poller.refresh() });
+    }
 
-        filteredExecutions = allExecutions.filter(exec => {
-            const searchable = (exec.jobName || '') + ' ' + (exec.taskName || '');
-            const matchesSearch = !searchTerm || searchable.toLowerCase().includes(searchTerm);
-            const matchesStatus = !statusFilter || exec.status === statusFilter;
-            return matchesSearch && matchesStatus;
+    function cancelExecution(execId) {
+        showConfirmModal({
+            title: 'Cancel Execution',
+            message: `Stop running execution #${execId}?`,
+            confirmText: 'Cancel Run',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await apiJson(`/api/cancel_execution?id=${execId}`, { method: 'POST' });
+                    showToast({ title: `Cancelled execution #${execId}`, type: 'warning' });
+                    poller.refresh();
+                } catch (err) {
+                    showToast({ title: 'Cancel failed', message: err.message, type: 'error' });
+                }
+            }
         });
-
-        currentPage = 1;
-        renderTable();
-        updatePagination();
     }
 
-    function renderTable() {
-        const tbody = document.getElementById('executions-body');
-        if (filteredExecutions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" class="no-data">No executions found</td></tr>';
-            return;
-        }
-        const start = (currentPage - 1) * PAGE_LIMIT;
-        const pageItems = filteredExecutions.slice(start, start + PAGE_LIMIT);
-
-        tbody.innerHTML = pageItems.map(exec => `
-        <tr>
-            <td><input type="checkbox" ${selectedIds.has(exec.executionId) ? 'checked' : ''} onchange="toggleSelect(${exec.executionId}, this.checked)"></td>
-            <td>${exec.executionId}</td>
-            <td><a href="/task_detail?id=${exec.taskId}">${exec.taskName}</a></td>
-            <td>${exec.jobName}</td>
-            <td>${formatStatus(exec.status)}</td>
-            <td>${formatTime(exec.startTime)}</td>
-            <td>${formatTime(exec.endTime)}</td>
-            <td>
-                <a href="/execution_log?id=${exec.executionId}" class="btn btn-sm">View Log</a>
-                <button onclick="deleteExecution(${exec.executionId})" class="btn btn-sm btn-danger">Delete</button>
-            </td>
-        </tr>
-    `).join('');
-
-        updateSelectionUI();
-    }
-
-    function goToPage(page) {
-        currentPage = page;
-        renderTable();
-        updatePagination();
-    }
-
-    function updatePagination() {
-        const paginationEl = document.getElementById('pagination');
-        const total = filteredExecutions.length;
-        const totalPages = Math.ceil(total / PAGE_LIMIT);
-
-        if (totalPages <= 1) {
-            paginationEl.style.display = 'none';
-            return;
-        }
-
-        paginationEl.style.display = 'flex';
-        const page = currentPage;
-
-        let html = `<span style="margin-right: 1rem;">Showing ${(page - 1) * PAGE_LIMIT + 1}-${Math.min(page * PAGE_LIMIT, total)} of ${total}</span>`;
-
-        if (page > 1) {
-            html += `<button class="btn btn-sm" onclick="goToPage(${page - 1})">Previous</button>`;
-        }
-
-        let startPage = Math.max(1, page - 2);
-        let endPage = Math.min(totalPages, page + 2);
-
-        if (startPage > 1) {
-            html += `<button class="btn btn-sm" onclick="goToPage(1)">1</button>`;
-            if (startPage > 2) html += `<span>...</span>`;
-        }
-
-        for (let p = startPage; p <= endPage; p++) {
-            if (p === page) {
-                html += `<button class="btn btn-sm" style="background: var(--primary); opacity: 0.8;" disabled>${p}</button>`;
-            } else {
-                html += `<button class="btn btn-sm" onclick="goToPage(${p})">${p}</button>`;
+    function deleteExecution(execId) {
+        showConfirmModal({
+            title: 'Delete Execution',
+            message: `Delete execution #${execId} and its log file?`,
+            confirmText: 'Delete',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await apiJson(`/api/delete_execution?id=${execId}`, { method: 'POST' });
+                    selectedIds.delete(execId);
+                    showToast({ title: `Deleted execution #${execId}`, type: 'success', duration: 3000 });
+                    poller.refresh();
+                } catch (err) {
+                    showToast({ title: 'Delete failed', message: err.message, type: 'error' });
+                }
             }
-        }
-
-        if (endPage < totalPages) {
-            if (endPage < totalPages - 1) html += `<span>...</span>`;
-            html += `<button class="btn btn-sm" onclick="goToPage(${totalPages})">${totalPages}</button>`;
-        }
-
-        if (page < totalPages) {
-            html += `<button class="btn btn-sm" onclick="goToPage(${page + 1})">Next</button>`;
-        }
-
-        paginationEl.innerHTML = html;
+        });
     }
 
-    async function loadDashboard() {
-        try {
-            const statsReq = await fetch("/api/stats");
-
-            if (statsReq.ok) {
-                const stats = await statsReq.json();
-                document.getElementById('total-executions').textContent = stats.total;
-                document.getElementById('successful').textContent = stats.success;
-                document.getElementById('running').textContent = stats.running;
-                document.getElementById('failed').textContent = stats.failed;
+    function deleteSelected() {
+        const ids = Array.from(selectedIds);
+        if (!ids.length) return;
+        showConfirmModal({
+            title: 'Delete Selected Executions',
+            message: `Permanently delete ${ids.length} execution record(s) and their logs?`,
+            confirmText: `Delete ${ids.length}`,
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    await apiJson('/api/delete_executions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ids })
+                    });
+                    selectedIds.clear();
+                    showToast({ title: `Deleted ${ids.length} execution(s)`, type: 'success', duration: 3000 });
+                    poller.refresh();
+                } catch (err) {
+                    showToast({ title: 'Bulk delete failed', message: err.message, type: 'error' });
+                }
             }
-
-            const runningSection = document.getElementById('running-section');
-            const runningBody = document.getElementById('running-body');
-
-            if (runningExecutions.length > 0) {
-                runningSection.style.display = 'block';
-                runningBody.innerHTML = runningExecutions.map(exec => `
-                <tr>
-                    <td>${exec.executionId}</td>
-                    <td><a href="/task_detail?id=${exec.taskId}">${exec.taskName}</a></td>
-                    <td>${exec.jobName}</td>
-                    <td>${formatTime(exec.startTime)}</td>
-                    <td>${calculateDuration(exec.startTime)}</td>
-                    <td>
-                        <a href="/execution_log?id=${exec.executionId}" class="btn btn-sm">View Log</a>
-                        <button onclick="cancelJob(${exec.executionId})" class="btn btn-sm btn-danger">Cancel</button>
-                    </td>
-                </tr>
-            `).join('');
-            } else {
-                runningSection.style.display = 'none';
-            }
-
-            renderTable();
-            updatePagination();
-
-        } catch (error) {
-            console.error('Error loading dashboard:', error);
-            document.getElementById('executions-body').innerHTML =
-                '<tr><td colspan="8" class="error">Error loading data</td></tr>';
-        }
+        });
     }
 
-    document.getElementById('name-search').addEventListener('input', applyFilter);
-    document.getElementById('status-filter').addEventListener('change', applyFilter);
+    function renderAll(resetPage = false) {
+        renderStats();
+        renderRunning();
+        applyFilter(resetPage);
+    }
 
-    loadDashboard();
+    document.getElementById('name-search').addEventListener('input', (e) => {
+        searchTerm = e.target.value;
+        applyFilter(true);
+    });
+
+    document.getElementById('status-filter').addEventListener('change', (e) => {
+        activeStatus = e.target.value;
+        renderStats();
+        applyFilter(true);
+    });
+
+    renderAll(true);
+
+    const poller = createAutoPoller(async () => {
+        const fresh = await apiJson('/api/dashboard');
+        if (fresh) {
+            state = fresh;
+            renderAll(false);
+        }
+    }, {
+        intervalMs: 5000,
+        fastIntervalMs: 2500,
+        isFast: () => (state.running && state.running.length > 0)
+    });
 </script>
 {% endblock %}

@@ -155,3 +155,32 @@ proc readFile*(filePath: string, maxLen: int): tuple[skippedSomeBytes: bool,
   if skipBytes >= fileSize: return (false, "")
   f.setFilePos(skipBytes)
   return (skipBytes > 0, if skipBytes > 0: "...\n" & f.readAll() else: f.readAll())
+
+proc readFileChunk*(filePath: string, offset: int64, maxLen: int): tuple[
+    skippedSomeBytes: bool, content: string, nextOffset: int64,
+    fileSize: int64, reset: bool] =
+  ## Reads either the tail (when offset < 0) or new bytes appended since offset.
+  if not fileExists(filePath):
+    return (false, "", 0'i64, 0'i64, false)
+  var f: File
+  if not open(f, filePath):
+    raise newException(IOError, "Could not open file: " & filePath)
+  defer: close(f)
+  let fileSize = f.getFileSize()
+  let safeMax = max(1024, maxLen).int64
+  var startPos: int64 = 0
+  var reset = false
+  if offset < 0 or offset > fileSize:
+    reset = offset > fileSize
+    startPos = max(0'i64, fileSize - safeMax)
+  else:
+    startPos = offset
+  if startPos >= fileSize:
+    return (false, "", fileSize, fileSize, reset)
+  let toRead = min(safeMax, fileSize - startPos).int
+  f.setFilePos(startPos)
+  var buf = newString(toRead)
+  let nRead = f.readBuffer(addr buf[0], toRead)
+  buf.setLen(nRead)
+  let nextPos = startPos + nRead.int64
+  return (startPos > 0 and offset < 0, buf, nextPos, fileSize, reset)
